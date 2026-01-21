@@ -38,6 +38,7 @@ export default function AssignmentBar({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isLongPressActive, setIsLongPressActive] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
+  const hasDraggedRef = useRef(false); // Track if a drag occurred to prevent menu on click after drag
 
   // Check if this is the last assignment for this project
   const projectAssignments = assignments.filter(a => a.projectId === project.id);
@@ -87,6 +88,7 @@ export default function AssignmentBar({
       duration: duration,
     };
     
+    hasDraggedRef.current = true;
     setIsDragging(true);
   }, [getContainer, style.left, style.width, cellWidth, allDays, assignment.startDate, assignment.endDate]);
 
@@ -149,6 +151,7 @@ export default function AssignmentBar({
       duration: 0,
     };
     
+    hasDraggedRef.current = true;
     setIsResizing(side);
   }, [getContainer, style.left]);
 
@@ -316,7 +319,28 @@ export default function AssignmentBar({
   const handleDoubleClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setShowEditModal(true);
+    // For system projects, show menu instead of edit modal
+    if (project.isSystem) {
+      setShowMenu(true);
+    } else {
+      setShowEditModal(true);
+    }
+  };
+
+  // Simple click to show menu (useful for mobile)
+  const handleClick = (e: React.MouseEvent) => {
+    // Only trigger on simple click, not after drag/resize
+    if (hasDraggedRef.current) {
+      // Reset the flag after a short delay
+      setTimeout(() => {
+        hasDraggedRef.current = false;
+      }, 100);
+      return;
+    }
+    if (!isDragging && !isResizing) {
+      e.stopPropagation();
+      setShowMenu(prev => !prev);
+    }
   };
 
   // Determine text color based on background
@@ -359,6 +383,7 @@ export default function AssignmentBar({
       onTouchEnd={handleTouchEnd}
       onContextMenu={handleContextMenu}
       onDoubleClick={handleDoubleClick}
+      onClick={handleClick}
     >
       {/* Resize handle left - larger touch target on mobile */}
       <div
