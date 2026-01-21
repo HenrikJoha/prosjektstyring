@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import { generateWeeks, formatDateShort, parseISO, isSameDay, addDays, startOfDay, format } from '@/utils/dates';
+import { nb } from 'date-fns/locale';
 import { Worker, Project, ProjectAssignment } from '@/types';
 import ProjectModal from './ProjectModal';
 import AssignmentBar from './AssignmentBar';
@@ -107,6 +108,52 @@ export default function ScheduleView() {
 
   const weeks = useMemo(() => generateWeeks(startDate, WEEKS_TO_SHOW), [startDate]);
   const allDays = useMemo(() => weeks.flatMap(w => w.days), [weeks]);
+  
+  // Calculate month spans for header
+  const monthSpans = useMemo(() => {
+    const spans: { month: string; year: number; width: number; key: string }[] = [];
+    let currentMonth = '';
+    let currentYear = 0;
+    let currentWidth = 0;
+    
+    weeks.forEach((week) => {
+      // Use the first day of the week to determine the month
+      const firstDay = week.days[0]?.date;
+      if (!firstDay) return;
+      
+      const monthName = format(firstDay, 'MMMM', { locale: nb });
+      const year = firstDay.getFullYear();
+      const weekWidth = week.days.length * CELL_WIDTH;
+      
+      if (monthName === currentMonth && year === currentYear) {
+        currentWidth += weekWidth;
+      } else {
+        if (currentMonth) {
+          spans.push({ 
+            month: currentMonth, 
+            year: currentYear, 
+            width: currentWidth,
+            key: `${currentMonth}-${currentYear}-${spans.length}`
+          });
+        }
+        currentMonth = monthName;
+        currentYear = year;
+        currentWidth = weekWidth;
+      }
+    });
+    
+    // Don't forget the last month
+    if (currentMonth) {
+      spans.push({ 
+        month: currentMonth, 
+        year: currentYear, 
+        width: currentWidth,
+        key: `${currentMonth}-${currentYear}-${spans.length}`
+      });
+    }
+    
+    return spans;
+  }, [weeks]);
   
   // Get the visible date range
   const viewStartDate = allDays[0]?.dateString || '';
@@ -381,8 +428,27 @@ export default function ScheduleView() {
         ref={scrollContainerRef}
       >
         <div className="min-w-max pb-20 md:pb-4">
-          {/* Header with week numbers and days */}
+          {/* Header with months, week numbers and days */}
           <div className="sticky top-0 z-20 bg-white border-b border-gray-200">
+            {/* Month row */}
+            <div className="flex">
+              <div className="w-48 flex-shrink-0 px-4 py-1 bg-blue-600 border-r border-blue-700" />
+              <div className="flex">
+                {monthSpans.map((span, idx) => (
+                  <div
+                    key={span.key}
+                    className={clsx(
+                      'text-center py-1 bg-blue-600 text-white font-semibold text-sm capitalize',
+                      idx < monthSpans.length - 1 && 'border-r border-blue-700'
+                    )}
+                    style={{ width: span.width }}
+                  >
+                    {span.month} {span.year}
+                  </div>
+                ))}
+              </div>
+            </div>
+            
             {/* Week numbers row */}
             <div className="flex">
               <div className="w-48 flex-shrink-0 px-4 py-2 bg-gray-50 border-r border-gray-200 font-medium text-sm text-gray-600">
