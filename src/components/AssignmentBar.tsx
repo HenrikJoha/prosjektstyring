@@ -337,12 +337,28 @@ export default function AssignmentBar({
 
   // ===== MENU HANDLERS =====
   
-  // Close menu when clicking outside
+  // Close menu when clicking outside - use mousedown to avoid same-click issue
   useEffect(() => {
     if (!showMenu) return;
-    const handleClickOutside = () => setShowMenu(false);
-    window.addEventListener('click', handleClickOutside);
-    return () => window.removeEventListener('click', handleClickOutside);
+    
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // Don't close if clicking inside the menu or on the bar itself
+      if (!target.closest('.assignment-menu') && !target.closest('.project-bar')) {
+        setShowMenu(false);
+      }
+    };
+    
+    // Use mousedown instead of click, and add listener on next frame
+    // to avoid the opening click from triggering it
+    const frameId = requestAnimationFrame(() => {
+      window.addEventListener('mousedown', handleClickOutside);
+    });
+    
+    return () => {
+      cancelAnimationFrame(frameId);
+      window.removeEventListener('mousedown', handleClickOutside);
+    };
   }, [showMenu]);
 
   const handleRemoveAssignment = (e: React.MouseEvent) => {
@@ -432,7 +448,7 @@ export default function AssignmentBar({
       {/* Context menu */}
       {showMenu && (
         <div
-          className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 min-w-[180px]"
+          className="assignment-menu absolute top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 min-w-[180px]"
           onClick={(e) => e.stopPropagation()}
         >
           {!project.isSystem && (
