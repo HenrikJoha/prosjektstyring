@@ -1,4 +1,5 @@
 export type WorkerRole = 'prosjektleder' | 'tømrer';
+export type ProjectType = 'regular' | 'sick_leave' | 'vacation';
 
 export interface Worker {
   id: string;
@@ -23,6 +24,7 @@ export interface Project {
   amount: number; // Total project amount in NOK
   aKontoPercent: number; // Percentage invoiced (0-100)
   status: 'active' | 'completed';
+  projectType: ProjectType; // regular, sick_leave, or vacation
   createdAt: string;
 }
 

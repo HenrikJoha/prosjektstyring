@@ -12,8 +12,9 @@ export default function FinanceView() {
   const [editField, setEditField] = useState<'akonto' | 'amount' | null>(null);
   const [editValue, setEditValue] = useState<number>(0);
 
-  const activeProjects = projects.filter(p => p.status === 'active');
-  const completedProjects = projects.filter(p => p.status === 'completed');
+  // Only show regular projects in finance (exclude sick_leave and vacation)
+  const activeProjects = projects.filter(p => p.status === 'active' && p.projectType === 'regular');
+  const completedProjects = projects.filter(p => p.status === 'completed' && p.projectType === 'regular');
 
   const totalOrdrereserve = getTotalOrdrereserve();
   const totalFakturert = activeProjects.reduce((sum, p) => {

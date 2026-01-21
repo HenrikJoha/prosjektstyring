@@ -58,6 +58,7 @@ const dbProjectToProject = (db: DbProject): Project => ({
   amount: Number(db.amount),
   aKontoPercent: Number(db.a_konto_percent),
   status: db.status,
+  projectType: db.project_type,
   createdAt: db.created_at,
 });
 
@@ -168,6 +169,7 @@ export const useStore = create<AppState>()((set, get) => ({
         amount: project.amount,
         a_konto_percent: project.aKontoPercent,
         status: project.status,
+        project_type: project.projectType || 'regular',
       })
       .select()
       .single();
@@ -192,6 +194,7 @@ export const useStore = create<AppState>()((set, get) => ({
     if (updates.amount !== undefined) dbUpdates.amount = updates.amount;
     if (updates.aKontoPercent !== undefined) dbUpdates.a_konto_percent = updates.aKontoPercent;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
+    if (updates.projectType !== undefined) dbUpdates.project_type = updates.projectType;
     
     const { error } = await supabase
       .from('projects')
@@ -305,7 +308,7 @@ export const useStore = create<AppState>()((set, get) => ({
   getTotalOrdrereserve: () => {
     const { projects } = get();
     return projects
-      .filter(p => p.status === 'active')
+      .filter(p => p.status === 'active' && p.projectType === 'regular')
       .reduce((total, project) => {
         const fakturert = (project.amount * project.aKontoPercent) / 100;
         return total + (project.amount - fakturert);

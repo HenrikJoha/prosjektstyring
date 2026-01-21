@@ -23,6 +23,7 @@ export interface DbProject {
   amount: number;
   a_konto_percent: number;
   status: 'active' | 'completed';
+  project_type: 'regular' | 'sick_leave' | 'vacation';
   created_at: string;
   updated_at: string;
 }

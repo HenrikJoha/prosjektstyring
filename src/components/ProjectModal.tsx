@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { parseISO, format } from '@/utils/dates';
-import { X, Plus, Check } from 'lucide-react';
+import { X, Plus, Check, Thermometer, Palmtree } from 'lucide-react';
 import clsx from 'clsx';
 
 const PROJECT_COLORS = [
@@ -49,7 +49,13 @@ export default function ProjectModal({
     amount: 0,
   });
 
-  const activeProjects = projects.filter(p => p.status === 'active');
+  // Separate special projects (sick leave, vacation) from regular projects
+  const specialProjects = projects.filter(p => 
+    p.status === 'active' && (p.projectType === 'sick_leave' || p.projectType === 'vacation')
+  );
+  const regularProjects = projects.filter(p => 
+    p.status === 'active' && p.projectType === 'regular'
+  );
   const worker = workers.find(w => w.id === workerId);
 
   const formatDateRange = () => {
@@ -61,25 +67,20 @@ export default function ProjectModal({
     return `${format(start, 'd. MMM')} - ${format(end, 'd. MMM yyyy')}`;
   };
 
-  const handleCreateProject = () => {
+  const handleCreateProject = async () => {
     if (newProject.name.trim()) {
-      const projectId = Math.random().toString(36).substring(2, 15);
-      addProject({
+      const createdId = await addProject({
         name: newProject.name.trim(),
         description: newProject.description.trim(),
         color: newProject.color,
         amount: newProject.amount,
         aKontoPercent: 0,
         status: 'active',
+        projectType: 'regular',
       });
-      // Get the newly created project (it's the last one added)
-      setTimeout(() => {
-        const newProjects = useStore.getState().projects;
-        const created = newProjects[newProjects.length - 1];
-        if (created) {
-          onSelect(created.id);
-        }
-      }, 0);
+      if (createdId) {
+        onSelect(createdId);
+      }
     }
   };
 
@@ -112,6 +113,38 @@ export default function ProjectModal({
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
           {mode === 'select' ? (
             <>
+              {/* Special options: Sick leave & Vacation */}
+              <div className="mb-4">
+                <div className="text-sm font-medium text-gray-500 mb-3">
+                  Fravær:
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {specialProjects.map(project => (
+                    <button
+                      key={project.id}
+                      onClick={() => handleSelectProject(project.id)}
+                      className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors text-left"
+                    >
+                      <div
+                        className="w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center"
+                        style={{ backgroundColor: project.color }}
+                      >
+                        {project.projectType === 'sick_leave' ? (
+                          <Thermometer size={20} className="text-white" />
+                        ) : (
+                          <Palmtree size={20} className="text-white" />
+                        )}
+                      </div>
+                      <div className="font-medium text-gray-900">
+                        {project.name}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-gray-200 my-4" />
+
               {/* Create new project button */}
               <button
                 onClick={() => setMode('create')}
@@ -123,14 +156,14 @@ export default function ProjectModal({
                 <span className="font-medium">Opprett nytt prosjekt</span>
               </button>
 
-              {/* Existing projects */}
-              {activeProjects.length > 0 && (
+              {/* Existing regular projects */}
+              {regularProjects.length > 0 && (
                 <>
                   <div className="text-sm font-medium text-gray-500 mb-3">
                     Eller velg eksisterende prosjekt:
                   </div>
                   <div className="space-y-2">
-                    {activeProjects.map(project => (
+                    {regularProjects.map(project => (
                       <button
                         key={project.id}
                         onClick={() => handleSelectProject(project.id)}
@@ -156,7 +189,7 @@ export default function ProjectModal({
                 </>
               )}
 
-              {activeProjects.length === 0 && (
+              {regularProjects.length === 0 && (
                 <p className="text-center text-gray-500 py-4">
                   Ingen eksisterende prosjekter. Opprett et nytt prosjekt for å starte.
                 </p>
