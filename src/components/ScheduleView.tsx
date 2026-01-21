@@ -460,21 +460,18 @@ export default function ScheduleView() {
                 Ansatt
               </div>
               <div className="flex">
-                {weeks.map((week, weekIdx) => {
-                  const isMonthBoundary = weekMonthBoundary.has(weekIdx);
-                  return (
-                    <div
-                      key={`week-${week.weekNumber}-${week.year}`}
-                      className={clsx(
-                        'text-center py-2 bg-gray-50 font-medium text-sm text-gray-600',
-                        weekIdx < weeks.length - 1 && (isMonthBoundary ? 'border-r-4 border-blue-300' : 'border-r-2 border-gray-300')
-                      )}
-                      style={{ width: week.days.length * CELL_WIDTH }}
-                    >
-                      Uke {week.weekNumber}
-                    </div>
-                  );
-                })}
+                {weeks.map((week, weekIdx) => (
+                  <div
+                    key={`week-${week.weekNumber}-${week.year}`}
+                    className={clsx(
+                      'text-center py-2 bg-gray-50 font-medium text-sm text-gray-600',
+                      weekIdx < weeks.length - 1 && 'border-r-2 border-gray-300'
+                    )}
+                    style={{ width: week.days.length * CELL_WIDTH }}
+                  >
+                    Uke {week.weekNumber}
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -482,40 +479,37 @@ export default function ScheduleView() {
             <div className="flex">
               <div className="w-48 flex-shrink-0 px-4 py-1 bg-white border-r border-gray-200" />
               <div className="flex">
-                {weeks.map((week, weekIdx) => {
-                  const isMonthBoundary = weekMonthBoundary.has(weekIdx);
-                  return (
-                    <div key={`days-${week.weekNumber}-${week.year}`} className="flex">
-                      {week.days.map((day, dayIdx) => {
-                        const isToday = isSameDay(day.date, new Date());
-                        const isLastDayOfWeek = dayIdx === week.days.length - 1;
-                        
-                        return (
-                          <div
-                            key={day.dateString}
-                            className={clsx(
-                              'text-center py-1 text-xs',
-                              isToday && 'bg-blue-100',
-                              day.isHoliday && 'bg-red-50 text-red-600',
-                              isLastDayOfWeek && weekIdx < weeks.length - 1 && (isMonthBoundary ? 'border-r-4 border-blue-300' : 'border-r-2 border-gray-300')
-                            )}
-                            style={{ width: CELL_WIDTH }}
-                            title={day.holidayName || undefined}
-                          >
-                            <div className="font-medium">{['Ma', 'Ti', 'On', 'To', 'Fr'][day.dayOfWeek]}</div>
-                            <div className={clsx(
-                              'text-gray-500',
-                              isToday && 'text-blue-600 font-bold',
-                              day.isHoliday && 'text-red-600'
-                            )}>
-                              {formatDateShort(day.date)}
-                            </div>
+                {weeks.map((week, weekIdx) => (
+                  <div key={`days-${week.weekNumber}-${week.year}`} className="flex">
+                    {week.days.map((day, dayIdx) => {
+                      const isToday = isSameDay(day.date, new Date());
+                      const isLastDayOfWeek = dayIdx === week.days.length - 1;
+                      
+                      return (
+                        <div
+                          key={day.dateString}
+                          className={clsx(
+                            'text-center py-1 text-xs',
+                            isToday && 'bg-blue-100',
+                            day.isHoliday && 'bg-red-50 text-red-600',
+                            isLastDayOfWeek && weekIdx < weeks.length - 1 && 'border-r-2 border-gray-300'
+                          )}
+                          style={{ width: CELL_WIDTH }}
+                          title={day.holidayName || undefined}
+                        >
+                          <div className="font-medium">{['Ma', 'Ti', 'On', 'To', 'Fr'][day.dayOfWeek]}</div>
+                          <div className={clsx(
+                            'text-gray-500',
+                            isToday && 'text-blue-600 font-bold',
+                            day.isHoliday && 'text-red-600'
+                          )}>
+                            {formatDateShort(day.date)}
                           </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -562,38 +556,35 @@ export default function ScheduleView() {
 
                       {/* Calendar cells */}
                       <div className="flex relative">
-                        {weeks.map((week, weekIdx) => {
-                          const isMonthBoundary = weekMonthBoundary.has(weekIdx);
-                          return (
-                            <div key={`${worker.id}-week-${week.weekNumber}`} className="flex">
-                              {week.days.map((day, dayIdx) => {
-                                const isSelected = isInSelection(worker.id, day.dateString);
-                                const isToday = isSameDay(day.date, new Date());
-                                const isLastDayOfWeek = dayIdx === week.days.length - 1;
+                        {weeks.map((week, weekIdx) => (
+                          <div key={`${worker.id}-week-${week.weekNumber}`} className="flex">
+                            {week.days.map((day, dayIdx) => {
+                              const isSelected = isInSelection(worker.id, day.dateString);
+                              const isToday = isSameDay(day.date, new Date());
+                              const isLastDayOfWeek = dayIdx === week.days.length - 1;
 
-                                return (
-                                  <div
-                                    key={day.dateString}
-                                    data-date={day.dateString}
-                                    className={clsx(
-                                      'calendar-cell border-b border-r border-gray-100 cursor-crosshair',
-                                      isSelected && 'bg-blue-200',
-                                      isToday && !isSelected && 'bg-blue-50',
-                                      day.isHoliday && !isSelected && 'bg-red-50/50',
-                                      isLastDayOfWeek && weekIdx < weeks.length - 1 && (isMonthBoundary ? 'border-r-4 border-r-blue-300' : 'border-r-2 border-r-gray-300')
-                                    )}
-                                    style={{ width: CELL_WIDTH, height: rowHeight }}
-                                    onMouseDown={() => handleMouseDown(worker.id, day.dateString)}
-                                    onMouseMove={() => handleMouseMove(day.dateString)}
-                                    onTouchStart={(e) => handleTouchStart(worker.id, day.dateString, e)}
-                                    onTouchMove={handleTouchMove}
-                                    onTouchEnd={handleTouchEnd}
-                                  />
-                                );
-                              })}
-                            </div>
-                          );
-                        })}
+                              return (
+                                <div
+                                  key={day.dateString}
+                                  data-date={day.dateString}
+                                  className={clsx(
+                                    'calendar-cell border-b border-r border-gray-100 cursor-crosshair',
+                                    isSelected && 'bg-blue-200',
+                                    isToday && !isSelected && 'bg-blue-50',
+                                    day.isHoliday && !isSelected && 'bg-red-50/50',
+                                    isLastDayOfWeek && weekIdx < weeks.length - 1 && 'border-r-2 border-r-gray-300'
+                                  )}
+                                  style={{ width: CELL_WIDTH, height: rowHeight }}
+                                  onMouseDown={() => handleMouseDown(worker.id, day.dateString)}
+                                  onMouseMove={() => handleMouseMove(day.dateString)}
+                                  onTouchStart={(e) => handleTouchStart(worker.id, day.dateString, e)}
+                                  onTouchMove={handleTouchMove}
+                                  onTouchEnd={handleTouchEnd}
+                                />
+                              );
+                            })}
+                          </div>
+                        ))}
 
                         {/* Assignment bars */}
                         {workerAssignments.map(assignment => {

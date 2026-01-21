@@ -1,13 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useStore } from '@/store/useStore';
-import { formatCurrency } from '@/utils/dates';
-import { Edit2, Check, X, DollarSign, TrendingUp, FileText, Trash2 } from 'lucide-react';
+import { formatCurrency, parseISO, eachDayOfInterval } from '@/utils/dates';
+import { Edit2, Check, X, DollarSign, TrendingUp, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 
+// Helper to check if a date is a weekend
+function isWeekend(date: Date): boolean {
+  const day = date.getDay();
+  return day === 0 || day === 6;
+}
+
+// Count working days (exclude weekends) between two dates
+function countWorkingDays(start: Date, end: Date): number {
+  if (start > end) return 0;
+  const days = eachDayOfInterval({ start, end });
+  return days.filter(d => !isWeekend(d)).length;
+}
+
 export default function FinanceView() {
-  const { projects, updateProject, deleteProject, getProjectFinance, getTotalOrdrereserve } = useStore();
+  const { projects, assignments, updateProject, deleteProject, getProjectFinance, getTotalOrdrereserve } = useStore();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editField, setEditField] = useState<'akonto' | 'amount' | null>(null);
   const [editValue, setEditValue] = useState<number>(0);
@@ -17,11 +30,42 @@ export default function FinanceView() {
   const completedProjects = projects.filter(p => p.status === 'completed' && p.projectType === 'regular');
 
   const totalOrdrereserve = getTotalOrdrereserve();
-  const totalFakturert = activeProjects.reduce((sum, p) => {
-    const { fakturert } = getProjectFinance(p.id);
-    return sum + fakturert;
-  }, 0);
-  const totalAmount = activeProjects.reduce((sum, p) => sum + p.amount, 0);
+
+  // Calculate project status (worked days / planned days)
+  const projectStatus = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const statusMap = new Map<string, { workedDays: number; plannedDays: number; percentage: number }>();
+    
+    activeProjects.forEach(project => {
+      const projectAssignments = assignments.filter(a => a.projectId === project.id);
+      
+      let totalWorkedDays = 0;
+      let totalPlannedDays = 0;
+      
+      projectAssignments.forEach(assignment => {
+        const startDate = parseISO(assignment.startDate);
+        const endDate = parseISO(assignment.endDate);
+        
+        // Planned days = all working days in the assignment
+        const plannedDays = countWorkingDays(startDate, endDate);
+        totalPlannedDays += plannedDays;
+        
+        // Worked days = working days from start to today (or end date if already passed)
+        const effectiveEnd = today < endDate ? today : endDate;
+        if (startDate <= effectiveEnd) {
+          const workedDays = countWorkingDays(startDate, effectiveEnd);
+          totalWorkedDays += workedDays;
+        }
+      });
+      
+      const percentage = totalPlannedDays > 0 ? Math.round((totalWorkedDays / totalPlannedDays) * 100) : 0;
+      statusMap.set(project.id, { workedDays: totalWorkedDays, plannedDays: totalPlannedDays, percentage });
+    });
+    
+    return statusMap;
+  }, [activeProjects, assignments]);
 
   const handleEdit = (projectId: string, field: 'akonto' | 'amount', currentValue: number) => {
     setEditingId(projectId);
@@ -47,33 +91,9 @@ export default function FinanceView() {
   return (
     <div className="p-4 md:p-6 overflow-auto h-full pb-24 md:pb-6">
       <div className="max-w-6xl mx-auto">
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <DollarSign className="text-blue-600" size={24} />
-              </div>
-              <span className="text-sm font-medium text-gray-500">Total prosjektverdi</span>
-            </div>
-            <div className="text-2xl font-bold text-gray-900">
-              {formatCurrency(totalAmount)}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <FileText className="text-green-600" size={24} />
-              </div>
-              <span className="text-sm font-medium text-gray-500">Fakturert</span>
-            </div>
-            <div className="text-2xl font-bold text-green-600">
-              {formatCurrency(totalFakturert)}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
+        {/* Summary Card - Only Ordrereserve */}
+        <div className="mb-8">
+          <div className="bg-white rounded-xl border border-gray-200 p-6 inline-block">
             <div className="flex items-center gap-3 mb-2">
               <div className="p-2 bg-orange-100 rounded-lg">
                 <TrendingUp className="text-orange-600" size={24} />
@@ -108,7 +128,8 @@ export default function FinanceView() {
                     <th className="text-right px-6 py-3 text-sm font-medium text-gray-500">A konto %</th>
                     <th className="text-right px-6 py-3 text-sm font-medium text-gray-500">Fakturert</th>
                     <th className="text-right px-6 py-3 text-sm font-medium text-gray-500">Ordrereserve</th>
-                    <th className="text-center px-6 py-3 text-sm font-medium text-gray-500">Status</th>
+                    <th className="text-center px-6 py-3 text-sm font-medium text-gray-500">Fremdrift</th>
+                    <th className="text-center px-6 py-3 text-sm font-medium text-gray-500">Handling</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -213,6 +234,32 @@ export default function FinanceView() {
                         </td>
                         <td className="px-6 py-4 text-right font-medium text-orange-600">
                           {formatCurrency(ordrereserve)}
+                        </td>
+                        <td className="px-6 py-4">
+                          {(() => {
+                            const status = projectStatus.get(project.id);
+                            if (!status || status.plannedDays === 0) {
+                              return <span className="text-gray-400 text-sm">-</span>;
+                            }
+                            return (
+                              <div className="flex flex-col items-center gap-1">
+                                <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                  <div 
+                                    className={clsx(
+                                      'h-full rounded-full transition-all',
+                                      status.percentage >= 100 ? 'bg-green-500' : 
+                                      status.percentage >= 75 ? 'bg-blue-500' :
+                                      status.percentage >= 50 ? 'bg-yellow-500' : 'bg-gray-400'
+                                    )}
+                                    style={{ width: `${Math.min(100, status.percentage)}%` }}
+                                  />
+                                </div>
+                                <span className="text-xs text-gray-500">
+                                  {status.percentage}% ({status.workedDays}/{status.plannedDays} dager)
+                                </span>
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="px-6 py-4 text-center">
                           <div className="flex items-center justify-center gap-2">
