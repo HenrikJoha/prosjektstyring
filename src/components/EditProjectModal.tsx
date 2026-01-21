@@ -150,30 +150,33 @@ export default function EditProjectModal({ project, onClose }: EditProjectModalP
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 bg-gray-50">
           <div>
-            {!showDeleteConfirm ? (
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                className="flex items-center gap-2 px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-              >
-                <Trash2 size={18} />
-                Slett prosjekt
-              </button>
-            ) : (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-red-600">Er du sikker?</span>
+            {/* Only show delete button for non-system projects */}
+            {!project.isSystem && (
+              !showDeleteConfirm ? (
                 <button
-                  onClick={handleDelete}
-                  className="px-3 py-1 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="flex items-center gap-2 px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                 >
-                  Ja, slett
+                  <Trash2 size={18} />
+                  Slett prosjekt
                 </button>
-                <button
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-                >
-                  Avbryt
-                </button>
-              </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-red-600">Er du sikker?</span>
+                  <button
+                    onClick={handleDelete}
+                    className="px-3 py-1 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700"
+                  >
+                    Ja, slett
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                  >
+                    Avbryt
+                  </button>
+                </div>
+              )
             )}
           </div>
           

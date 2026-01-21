@@ -59,6 +59,7 @@ const dbProjectToProject = (db: DbProject): Project => ({
   aKontoPercent: Number(db.a_konto_percent),
   status: db.status,
   projectType: db.project_type,
+  isSystem: db.is_system,
   createdAt: db.created_at,
 });
 

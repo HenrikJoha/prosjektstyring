@@ -30,13 +30,18 @@ export default function AssignmentBar({
   lane,
   totalLanes,
 }: AssignmentBarProps) {
-  const { updateAssignment, deleteAssignment } = useStore();
+  const { updateAssignment, deleteAssignment, deleteProject, assignments } = useStore();
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isLongPressActive, setIsLongPressActive] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
+
+  // Check if this is the last assignment for this project
+  const projectAssignments = assignments.filter(a => a.projectId === project.id);
+  const isLastAssignment = projectAssignments.length === 1;
   
   // Store initial positions when drag starts
   const dragStartRef = useRef<{
@@ -277,10 +282,29 @@ export default function AssignmentBar({
     return () => window.removeEventListener('click', handleClick);
   }, [showMenu]);
 
-  const handleDelete = (e: React.MouseEvent) => {
+  const handleRemoveAssignment = (e: React.MouseEvent) => {
     e.stopPropagation();
+    
+    // If this is the last assignment and it's not a system project, ask for confirmation
+    if (isLastAssignment && !project.isSystem) {
+      setShowMenu(false);
+      setShowDeleteConfirm(true);
+    } else {
+      // Just remove the assignment
+      deleteAssignment(assignment.id);
+      setShowMenu(false);
+    }
+  };
+
+  const handleConfirmDeleteProject = () => {
     deleteAssignment(assignment.id);
-    setShowMenu(false);
+    deleteProject(project.id);
+    setShowDeleteConfirm(false);
+  };
+
+  const handleJustRemoveAssignment = () => {
+    deleteAssignment(assignment.id);
+    setShowDeleteConfirm(false);
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -366,25 +390,63 @@ export default function AssignmentBar({
           className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50"
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Only show edit for non-system projects */}
+          {!project.isSystem && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowMenu(false);
+                setShowEditModal(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 w-full text-left"
+            >
+              <Edit2 size={16} />
+              Rediger prosjekt
+            </button>
+          )}
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowMenu(false);
-              setShowEditModal(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 w-full text-left"
-          >
-            <Edit2 size={16} />
-            Rediger prosjekt
-          </button>
-          <button
-            onClick={handleDelete}
+            onClick={handleRemoveAssignment}
             className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 w-full text-left"
           >
             <Trash2 size={16} />
             Fjern fra kalender
           </button>
         </div>
+      )}
+
+      {/* Delete confirmation dialog */}
+      {showDeleteConfirm && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Slett prosjekt?
+            </h3>
+            <p className="text-gray-600 mb-6">
+              Dette er den siste tildelingen for &quot;{project.name}&quot;. Vil du også slette hele prosjektet?
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={handleConfirmDeleteProject}
+                className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Ja, slett prosjektet
+              </button>
+              <button
+                onClick={handleJustRemoveAssignment}
+                className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Nei, bare fjern fra kalender
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="w-full px-4 py-2 text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                Avbryt
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* Edit Project Modal - rendered via portal to escape overflow:hidden */}

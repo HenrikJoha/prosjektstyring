@@ -24,6 +24,7 @@ export interface DbProject {
   a_konto_percent: number;
   status: 'active' | 'completed';
   project_type: 'regular' | 'sick_leave' | 'vacation';
+  is_system: boolean;
   created_at: string;
   updated_at: string;
 }

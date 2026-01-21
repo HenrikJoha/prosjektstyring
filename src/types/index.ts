@@ -25,6 +25,7 @@ export interface Project {
   aKontoPercent: number; // Percentage invoiced (0-100)
   status: 'active' | 'completed';
   projectType: ProjectType; // regular, sick_leave, or vacation
+  isSystem: boolean; // System projects (sick leave, vacation) cannot be deleted
   createdAt: string;
 }
 

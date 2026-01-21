@@ -80,6 +80,7 @@ export default function ProjectModal({
         aKontoPercent: 0,
         status: 'active',
         projectType: 'regular',
+        isSystem: false,
       });
       if (createdId) {
         onSelect(createdId);
