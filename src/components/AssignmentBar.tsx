@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/store/useStore';
 import { ProjectAssignment, Project } from '@/types';
-import { DayData, parseISO, addDays, format } from '@/utils/dates';
+import { DayData } from '@/utils/dates';
 import { Trash2, GripVertical, Edit2 } from 'lucide-react';
 import clsx from 'clsx';
 import EditProjectModal from './EditProjectModal';
@@ -42,240 +42,94 @@ export default function AssignmentBar({
   const projectAssignments = assignments.filter(a => a.projectId === project.id);
   const isLastAssignment = projectAssignments.length === 1;
   
-  // Store initial positions when drag starts - now includes pending state
-  const dragStartRef = useRef<{
-    mouseX: number;
+  // Mouse/touch tracking refs
+  const mouseDownRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const dragDataRef = useRef<{
+    startX: number;
     barLeft: number;
-    containerLeft: number;
     duration: number;
-    isDragPending: boolean; // True until mouse moves enough to confirm drag
   } | null>(null);
+  const resizeSideRef = useRef<'left' | 'right' | null>(null);
   
-  // Long press timer for touch
+  // Touch long press
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
-  const LONG_PRESS_DURATION = 500; // ms to wait for long press on mobile
-  const DRAG_THRESHOLD = 5; // pixels to move before drag activates
+  
+  const DRAG_THRESHOLD = 5;
+  const LONG_PRESS_DURATION = 500;
 
-  // Calculate date from pixel position relative to container
+  // Get date from position
   const getDateFromPosition = useCallback((xPosition: number) => {
     const dayIndex = Math.floor(xPosition / cellWidth);
     const clampedIndex = Math.max(0, Math.min(allDays.length - 1, dayIndex));
     return allDays[clampedIndex]?.dateString;
   }, [allDays, cellWidth]);
 
-  // Find the calendar container
-  const getContainer = useCallback(() => {
-    return barRef.current?.parentElement;
-  }, []);
+  const getContainer = useCallback(() => barRef.current?.parentElement, []);
 
-  // Prepare for potential drag (doesn't start dragging yet)
-  const prepareDrag = useCallback((clientX: number) => {
-    const container = getContainer();
-    if (!container) return;
-    
-    const containerRect = container.getBoundingClientRect();
-    
-    // Calculate duration in days
-    const startIdx = allDays.findIndex(d => d.dateString === assignment.startDate);
-    const endIdx = allDays.findIndex(d => d.dateString === assignment.endDate);
-    const duration = endIdx >= 0 && startIdx >= 0 ? endIdx - startIdx + 1 : Math.round(style.width / cellWidth);
-    
-    dragStartRef.current = {
-      mouseX: clientX,
-      barLeft: style.left,
-      containerLeft: containerRect.left,
-      duration: duration,
-      isDragPending: true, // Will become false once drag threshold is met
-    };
-  }, [getContainer, style.left, style.width, cellWidth, allDays, assignment.startDate, assignment.endDate]);
-
-  // Track if we should show menu on click (set false if drag starts)
-  const shouldShowMenuRef = useRef(true);
-
-  // Handle mouse down - prepare for drag but don't start yet
-  const handleMouseDragStart = useCallback((e: React.MouseEvent) => {
-    // Don't interfere with right-click
-    if (e.button !== 0) return;
-    // Don't prevent default - let click event work
-    shouldShowMenuRef.current = true;
-    prepareDrag(e.clientX);
-  }, [prepareDrag]);
-
-  // Clean up pending drag on mouse up (runs always, not just when dragging)
-  useEffect(() => {
-    const handleMouseUp = () => {
-      // If we had a pending drag that never started, it was just a click
-      if (dragStartRef.current?.isDragPending) {
-        dragStartRef.current = null;
-        resizeSideRef.current = null;
-        // shouldShowMenuRef stays true - click will show menu
-      } else if (isDragging || isResizing) {
-        // Actual drag happened - don't show menu on next click
-        shouldShowMenuRef.current = false;
-      }
-    };
-
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => window.removeEventListener('mouseup', handleMouseUp);
-  }, [isDragging, isResizing]);
-
-  // Handle touch start - start long press timer for showing menu
-  const handleTouchDragStart = useCallback((e: React.TouchEvent) => {
+  // ===== MOUSE HANDLERS =====
+  
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return; // Only left click
     e.stopPropagation();
-    const touch = e.touches[0];
-    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
-    
-    // Prepare drag in case user wants to drag after long press
-    prepareDrag(touch.clientX);
-    
-    // Start long press timer - will show menu if held without moving
-    longPressTimerRef.current = setTimeout(() => {
-      // Long press completed without moving - show menu
-      setShowMenu(true);
-      if (navigator.vibrate) navigator.vibrate(50);
-      // Clear the pending drag
-      dragStartRef.current = null;
-      touchStartPosRef.current = null;
-    }, LONG_PRESS_DURATION);
-  }, [prepareDrag]);
-
-  // Cancel long press if touch moves - start drag instead
-  const handleTouchMoveCancel = useCallback((e: React.TouchEvent) => {
-    if (touchStartPosRef.current && longPressTimerRef.current) {
-      const touch = e.touches[0];
-      const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
-      const dy = Math.abs(touch.clientY - touchStartPosRef.current.y);
-      
-      // If moved more than threshold, cancel long press and start drag
-      if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
-        clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-        
-        // Start actual dragging
-        if (dragStartRef.current?.isDragPending) {
-          dragStartRef.current.isDragPending = false;
-          setIsDragging(true);
-        }
-      }
-    }
+    mouseDownRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
   }, []);
 
-  // Clean up long press timer on touch end
-  const handleTouchEnd = useCallback(() => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-    // If we had a pending drag that never started, it was a tap
-    if (dragStartRef.current?.isDragPending) {
-      dragStartRef.current = null;
-    }
-    touchStartPosRef.current = null;
-  }, []);
-
-  // Resize state ref
-  const resizeSideRef = useRef<'left' | 'right' | null>(null);
-
-  // Prepare for resize (doesn't start resizing yet)
-  const prepareResize = useCallback((clientX: number, side: 'left' | 'right') => {
-    const container = getContainer();
-    if (!container) return;
-    
-    const containerRect = container.getBoundingClientRect();
-    
-    dragStartRef.current = {
-      mouseX: clientX,
-      barLeft: style.left,
-      containerLeft: containerRect.left,
-      duration: 0,
-      isDragPending: true,
-    };
-    resizeSideRef.current = side;
-  }, [getContainer, style.left]);
-
-  // Handle resize start - mouse
-  const handleMouseResizeStart = useCallback((e: React.MouseEvent, side: 'left' | 'right') => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    prepareResize(e.clientX, side);
-  }, [prepareResize]);
-
-  // Handle resize touch start
-  const handleTouchResizeStart = useCallback((e: React.TouchEvent, side: 'left' | 'right') => {
-    e.stopPropagation();
-    const touch = e.touches[0];
-    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
-    prepareResize(touch.clientX, side);
-  }, [prepareResize]);
-
-  // Handle resize touch move - start resizing if moved enough
-  const handleResizeTouchMoveCancel = useCallback((e: React.TouchEvent) => {
-    if (touchStartPosRef.current && dragStartRef.current?.isDragPending && resizeSideRef.current) {
-      const touch = e.touches[0];
-      const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
-      
-      if (dx > DRAG_THRESHOLD) {
-        dragStartRef.current.isDragPending = false;
-        setIsResizing(resizeSideRef.current);
-      }
-    }
-  }, []);
-
-  // Clean up resize touch
-  const handleResizeTouchEnd = useCallback(() => {
-    if (dragStartRef.current?.isDragPending) {
-      dragStartRef.current = null;
-    }
-    resizeSideRef.current = null;
-    touchStartPosRef.current = null;
-  }, []);
-
-  // Handle mouse move - check threshold and perform drag/resize
+  // Global mouse move - check for drag start
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (!dragStartRef.current) return;
-
-      const dx = Math.abs(e.clientX - dragStartRef.current.mouseX);
-      
-      // Check if we should start dragging (threshold met)
-      if (dragStartRef.current.isDragPending && dx > DRAG_THRESHOLD) {
-        dragStartRef.current.isDragPending = false;
-        shouldShowMenuRef.current = false; // Don't show menu after actual drag
-        if (resizeSideRef.current) {
-          setIsResizing(resizeSideRef.current);
-        } else {
-          setIsDragging(true);
+      // Check if we should start dragging
+      if (mouseDownRef.current && !isDragging && !isResizing) {
+        const dx = Math.abs(e.clientX - mouseDownRef.current.x);
+        const dy = Math.abs(e.clientY - mouseDownRef.current.y);
+        
+        if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+          // Start dragging
+          const container = getContainer();
+          if (container) {
+            const startIdx = allDays.findIndex(d => d.dateString === assignment.startDate);
+            const endIdx = allDays.findIndex(d => d.dateString === assignment.endDate);
+            const duration = endIdx >= 0 && startIdx >= 0 ? endIdx - startIdx + 1 : Math.round(style.width / cellWidth);
+            
+            dragDataRef.current = {
+              startX: mouseDownRef.current.x,
+              barLeft: style.left,
+              duration,
+            };
+            
+            if (resizeSideRef.current) {
+              setIsResizing(resizeSideRef.current);
+            } else {
+              setIsDragging(true);
+            }
+          }
+          mouseDownRef.current = null;
         }
         return;
       }
       
-      // If not actively dragging/resizing, don't do anything
+      // Handle active drag/resize
       if (!isDragging && !isResizing) return;
-
+      if (!dragDataRef.current) return;
+      
       const container = getContainer();
       if (!container) return;
-
+      
       const containerRect = container.getBoundingClientRect();
       const relativeX = e.clientX - containerRect.left;
-
+      
       if (isDragging) {
-        const mouseDelta = e.clientX - dragStartRef.current.mouseX;
-        const newLeft = dragStartRef.current.barLeft + mouseDelta;
-        
+        const mouseDelta = e.clientX - dragDataRef.current.startX;
+        const newLeft = dragDataRef.current.barLeft + mouseDelta;
         const newStartDate = getDateFromPosition(newLeft);
+        
         if (newStartDate) {
           const startIdx = allDays.findIndex(d => d.dateString === newStartDate);
-          const endIdx = startIdx + dragStartRef.current.duration - 1;
+          const endIdx = startIdx + dragDataRef.current.duration - 1;
           
           if (startIdx >= 0 && endIdx < allDays.length) {
             const endDate = allDays[endIdx]?.dateString;
             if (endDate) {
-              updateAssignment(assignment.id, {
-                startDate: newStartDate,
-                endDate: endDate,
-              });
+              updateAssignment(assignment.id, { startDate: newStartDate, endDate });
             }
           }
         }
@@ -294,90 +148,209 @@ export default function AssignmentBar({
       }
     };
 
-    const handleTouchMove = (e: TouchEvent) => {
-      if ((isDragging || isResizing) && dragStartRef.current && !dragStartRef.current.isDragPending) {
-        e.preventDefault();
-        
+    const handleMouseUp = () => {
+      mouseDownRef.current = null;
+      dragDataRef.current = null;
+      resizeSideRef.current = null;
+      setIsDragging(false);
+      setIsResizing(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, isResizing, getContainer, getDateFromPosition, allDays, assignment, updateAssignment, style.left, style.width, cellWidth]);
+
+  // Handle click - only fires if no drag happened
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    // If we're dragging, don't show menu
+    if (isDragging || isResizing) return;
+    setShowMenu(prev => !prev);
+  }, [isDragging, isResizing]);
+
+  // Handle right-click
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setShowMenu(true);
+  }, []);
+
+  // Handle double-click
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (project.isSystem) {
+      setShowMenu(true);
+    } else {
+      setShowEditModal(true);
+    }
+  }, [project.isSystem]);
+
+  // ===== RESIZE HANDLERS =====
+  
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent, side: 'left' | 'right') => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    mouseDownRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
+    resizeSideRef.current = side;
+  }, []);
+
+  // ===== TOUCH HANDLERS =====
+  
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    e.stopPropagation();
+    const touch = e.touches[0];
+    mouseDownRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+    
+    // Start long press timer
+    longPressTimerRef.current = setTimeout(() => {
+      setShowMenu(true);
+      if (navigator.vibrate) navigator.vibrate(50);
+      mouseDownRef.current = null;
+    }, LONG_PRESS_DURATION);
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!mouseDownRef.current) return;
+    
+    const touch = e.touches[0];
+    const dx = Math.abs(touch.clientX - mouseDownRef.current.x);
+    const dy = Math.abs(touch.clientY - mouseDownRef.current.y);
+    
+    // Cancel long press if moved
+    if (longPressTimerRef.current && (dx > 10 || dy > 10)) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    
+    // Start drag if threshold met
+    if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+      if (!isDragging && !isResizing) {
         const container = getContainer();
-        if (!container) return;
-
-        const containerRect = container.getBoundingClientRect();
-        const clientX = e.touches[0].clientX;
-        const relativeX = clientX - containerRect.left;
-
-        if (isDragging) {
-          const mouseDelta = clientX - dragStartRef.current.mouseX;
-          const newLeft = dragStartRef.current.barLeft + mouseDelta;
+        if (container) {
+          const startIdx = allDays.findIndex(d => d.dateString === assignment.startDate);
+          const endIdx = allDays.findIndex(d => d.dateString === assignment.endDate);
+          const duration = endIdx >= 0 && startIdx >= 0 ? endIdx - startIdx + 1 : Math.round(style.width / cellWidth);
           
-          const newStartDate = getDateFromPosition(newLeft);
-          if (newStartDate) {
-            const startIdx = allDays.findIndex(d => d.dateString === newStartDate);
-            const endIdx = startIdx + dragStartRef.current.duration - 1;
-            
-            if (startIdx >= 0 && endIdx < allDays.length) {
-              const endDate = allDays[endIdx]?.dateString;
-              if (endDate) {
-                updateAssignment(assignment.id, {
-                  startDate: newStartDate,
-                  endDate: endDate,
-                });
-              }
+          dragDataRef.current = {
+            startX: mouseDownRef.current.x,
+            barLeft: style.left,
+            duration,
+          };
+          
+          if (resizeSideRef.current) {
+            setIsResizing(resizeSideRef.current);
+          } else {
+            setIsDragging(true);
+          }
+        }
+      }
+    }
+  }, [isDragging, isResizing, getContainer, allDays, assignment, style, cellWidth]);
+
+  // Touch move for active drag/resize
+  useEffect(() => {
+    if (!isDragging && !isResizing) return;
+    
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!dragDataRef.current) return;
+      e.preventDefault();
+      
+      const touch = e.touches[0];
+      const container = getContainer();
+      if (!container) return;
+      
+      const containerRect = container.getBoundingClientRect();
+      const relativeX = touch.clientX - containerRect.left;
+      
+      if (isDragging) {
+        const mouseDelta = touch.clientX - dragDataRef.current.startX;
+        const newLeft = dragDataRef.current.barLeft + mouseDelta;
+        const newStartDate = getDateFromPosition(newLeft);
+        
+        if (newStartDate) {
+          const startIdx = allDays.findIndex(d => d.dateString === newStartDate);
+          const endIdx = startIdx + dragDataRef.current.duration - 1;
+          
+          if (startIdx >= 0 && endIdx < allDays.length) {
+            const endDate = allDays[endIdx]?.dateString;
+            if (endDate) {
+              updateAssignment(assignment.id, { startDate: newStartDate, endDate });
             }
           }
-        } else if (isResizing) {
-          if (isResizing === 'left') {
-            const newStartDate = getDateFromPosition(relativeX);
-            if (newStartDate && newStartDate <= assignment.endDate) {
-              updateAssignment(assignment.id, { startDate: newStartDate });
-            }
-          } else {
-            const newEndDate = getDateFromPosition(relativeX);
-            if (newEndDate && newEndDate >= assignment.startDate) {
-              updateAssignment(assignment.id, { endDate: newEndDate });
-            }
+        }
+      } else if (isResizing) {
+        if (isResizing === 'left') {
+          const newStartDate = getDateFromPosition(relativeX);
+          if (newStartDate && newStartDate <= assignment.endDate) {
+            updateAssignment(assignment.id, { startDate: newStartDate });
+          }
+        } else {
+          const newEndDate = getDateFromPosition(relativeX);
+          if (newEndDate && newEndDate >= assignment.startDate) {
+            updateAssignment(assignment.id, { endDate: newEndDate });
           }
         }
       }
     };
 
-    const handleEnd = () => {
+    const handleTouchEnd = () => {
+      mouseDownRef.current = null;
+      dragDataRef.current = null;
+      resizeSideRef.current = null;
       setIsDragging(false);
       setIsResizing(null);
-      dragStartRef.current = null;
-      resizeSideRef.current = null;
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('touchmove', handleTouchMove, { passive: false });
-    window.addEventListener('mouseup', handleEnd);
-    window.addEventListener('touchend', handleEnd);
-
+    window.addEventListener('touchend', handleTouchEnd);
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('touchmove', handleTouchMove);
-      window.removeEventListener('mouseup', handleEnd);
-      window.removeEventListener('touchend', handleEnd);
+      window.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [isDragging, isResizing, cellWidth, getDateFromPosition, allDays, assignment, updateAssignment, getContainer]);
+  }, [isDragging, isResizing, getContainer, getDateFromPosition, allDays, assignment, updateAssignment]);
 
+  const handleTouchEnd = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    mouseDownRef.current = null;
+    resizeSideRef.current = null;
+  }, []);
+
+  const handleResizeTouchStart = useCallback((e: React.TouchEvent, side: 'left' | 'right') => {
+    e.stopPropagation();
+    const touch = e.touches[0];
+    mouseDownRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+    resizeSideRef.current = side;
+  }, []);
+
+  // ===== MENU HANDLERS =====
+  
   // Close menu when clicking outside
   useEffect(() => {
     if (!showMenu) return;
-
-    const handleClick = () => setShowMenu(false);
-    window.addEventListener('click', handleClick);
-    return () => window.removeEventListener('click', handleClick);
+    const handleClickOutside = () => setShowMenu(false);
+    window.addEventListener('click', handleClickOutside);
+    return () => window.removeEventListener('click', handleClickOutside);
   }, [showMenu]);
 
   const handleRemoveAssignment = (e: React.MouseEvent) => {
     e.stopPropagation();
-    
-    // If this is the last assignment and it's not a system project, ask for confirmation
     if (isLastAssignment && !project.isSystem) {
       setShowMenu(false);
       setShowDeleteConfirm(true);
     } else {
-      // Just remove the assignment
       deleteAssignment(assignment.id);
       setShowMenu(false);
     }
@@ -394,35 +367,8 @@ export default function AssignmentBar({
     setShowDeleteConfirm(false);
   };
 
-  const handleContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setShowMenu(true);
-  };
-
-  const handleDoubleClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    // For system projects, show menu instead of edit modal
-    if (project.isSystem) {
-      setShowMenu(true);
-    } else {
-      setShowEditModal(true);
-    }
-  };
-
-  // Simple click to show menu - only works if not dragging
-  const handleClick = (e: React.MouseEvent) => {
-    // Only show menu if we should (not after a drag)
-    if (!shouldShowMenuRef.current || isDragging || isResizing) {
-      shouldShowMenuRef.current = true; // Reset for next click
-      return;
-    }
-    e.stopPropagation();
-    setShowMenu(prev => !prev);
-  };
-
-  // Determine text color based on background
+  // ===== RENDERING =====
+  
   const getContrastColor = (hexColor: string) => {
     const r = parseInt(hexColor.slice(1, 3), 16);
     const g = parseInt(hexColor.slice(3, 5), 16);
@@ -433,20 +379,19 @@ export default function AssignmentBar({
 
   const textColor = getContrastColor(project.color);
 
-  // Calculate bar dimensions based on lane
   const padding = 4;
   const availableHeight = rowHeight - (padding * 2);
   const barHeight = totalLanes > 1 
-    ? (availableHeight / totalLanes) - 2 // Small gap between lanes
-    : availableHeight - 8; // Standard padding when single lane
+    ? (availableHeight / totalLanes) - 2
+    : availableHeight - 8;
   const barTop = padding + (lane * (availableHeight / totalLanes)) + (totalLanes > 1 ? 1 : 4);
 
   return (
     <div
       ref={barRef}
       className={clsx(
-        'project-bar absolute rounded-md shadow-sm cursor-move overflow-hidden',
-        (isDragging || isResizing) && 'opacity-80 shadow-lg z-30'
+        'project-bar absolute rounded-md shadow-sm cursor-pointer overflow-hidden',
+        (isDragging || isResizing) && 'opacity-80 shadow-lg z-30 cursor-move'
       )}
       style={{
         left: style.left,
@@ -456,21 +401,19 @@ export default function AssignmentBar({
         backgroundColor: project.color,
         color: textColor,
       }}
-      onMouseDown={handleMouseDragStart}
-      onTouchStart={handleTouchDragStart}
-      onTouchMove={handleTouchMoveCancel}
-      onTouchEnd={handleTouchEnd}
+      onMouseDown={handleMouseDown}
+      onClick={handleClick}
       onContextMenu={handleContextMenu}
       onDoubleClick={handleDoubleClick}
-      onClick={handleClick}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
-      {/* Resize handle left - larger touch target on mobile */}
+      {/* Resize handle left */}
       <div
         className="resize-handle resize-handle-left"
-        onMouseDown={(e) => handleMouseResizeStart(e, 'left')}
-        onTouchStart={(e) => handleTouchResizeStart(e, 'left')}
-        onTouchMove={handleResizeTouchMoveCancel}
-        onTouchEnd={handleResizeTouchEnd}
+        onMouseDown={(e) => handleResizeMouseDown(e, 'left')}
+        onTouchStart={(e) => handleResizeTouchStart(e, 'left')}
       />
 
       {/* Content */}
@@ -479,22 +422,19 @@ export default function AssignmentBar({
         <span className="text-sm font-medium truncate">{project.name}</span>
       </div>
 
-      {/* Resize handle right - larger touch target on mobile */}
+      {/* Resize handle right */}
       <div
         className="resize-handle resize-handle-right"
-        onMouseDown={(e) => handleMouseResizeStart(e, 'right')}
-        onTouchStart={(e) => handleTouchResizeStart(e, 'right')}
-        onTouchMove={handleResizeTouchMoveCancel}
-        onTouchEnd={handleResizeTouchEnd}
+        onMouseDown={(e) => handleResizeMouseDown(e, 'right')}
+        onTouchStart={(e) => handleResizeTouchStart(e, 'right')}
       />
 
       {/* Context menu */}
       {showMenu && (
         <div
-          className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50"
+          className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 min-w-[180px]"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Only show edit for non-system projects */}
           {!project.isSystem && (
             <button
               onClick={(e) => {
@@ -553,7 +493,7 @@ export default function AssignmentBar({
         document.body
       )}
 
-      {/* Edit Project Modal - rendered via portal to escape overflow:hidden */}
+      {/* Edit Project Modal */}
       {showEditModal && createPortal(
         <EditProjectModal
           project={project}
