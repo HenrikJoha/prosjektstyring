@@ -380,7 +380,7 @@ export default function ScheduleView() {
         )} 
         ref={scrollContainerRef}
       >
-        <div className="min-w-max">
+        <div className="min-w-max pb-20 md:pb-4">
           {/* Header with week numbers and days */}
           <div className="sticky top-0 z-20 bg-white border-b border-gray-200">
             {/* Week numbers row */}
