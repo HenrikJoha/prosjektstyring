@@ -1,0 +1,38 @@
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Database types matching our schema
+export interface DbWorker {
+  id: string;
+  name: string;
+  role: 'prosjektleder' | 'tømrer';
+  project_leader_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbProject {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+  amount: number;
+  a_konto_percent: number;
+  status: 'active' | 'completed';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbProjectAssignment {
+  id: string;
+  project_id: string;
+  worker_id: string;
+  start_date: string;
+  end_date: string;
+  created_at: string;
+  updated_at: string;
+}
