@@ -90,13 +90,35 @@ export default function AssignmentBar({
     };
   }, [getContainer, style.left, style.width, cellWidth, allDays, assignment.startDate, assignment.endDate]);
 
+  // Track if we should show menu on click (set false if drag starts)
+  const shouldShowMenuRef = useRef(true);
+
   // Handle mouse down - prepare for drag but don't start yet
   const handleMouseDragStart = useCallback((e: React.MouseEvent) => {
     // Don't interfere with right-click
     if (e.button !== 0) return;
-    e.preventDefault();
+    // Don't prevent default - let click event work
+    shouldShowMenuRef.current = true;
     prepareDrag(e.clientX);
   }, [prepareDrag]);
+
+  // Clean up pending drag on mouse up (runs always, not just when dragging)
+  useEffect(() => {
+    const handleMouseUp = () => {
+      // If we had a pending drag that never started, it was just a click
+      if (dragStartRef.current?.isDragPending) {
+        dragStartRef.current = null;
+        resizeSideRef.current = null;
+        // shouldShowMenuRef stays true - click will show menu
+      } else if (isDragging || isResizing) {
+        // Actual drag happened - don't show menu on next click
+        shouldShowMenuRef.current = false;
+      }
+    };
+
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => window.removeEventListener('mouseup', handleMouseUp);
+  }, [isDragging, isResizing]);
 
   // Handle touch start - start long press timer for showing menu
   const handleTouchDragStart = useCallback((e: React.TouchEvent) => {
@@ -220,6 +242,7 @@ export default function AssignmentBar({
       // Check if we should start dragging (threshold met)
       if (dragStartRef.current.isDragPending && dx > DRAG_THRESHOLD) {
         dragStartRef.current.isDragPending = false;
+        shouldShowMenuRef.current = false; // Don't show menu after actual drag
         if (resizeSideRef.current) {
           setIsResizing(resizeSideRef.current);
         } else {
@@ -390,8 +413,9 @@ export default function AssignmentBar({
 
   // Simple click to show menu - only works if not dragging
   const handleClick = (e: React.MouseEvent) => {
-    // If there's a pending drag or active drag, don't show menu
-    if (dragStartRef.current || isDragging || isResizing) {
+    // Only show menu if we should (not after a drag)
+    if (!shouldShowMenuRef.current || isDragging || isResizing) {
+      shouldShowMenuRef.current = true; // Reset for next click
       return;
     }
     e.stopPropagation();
