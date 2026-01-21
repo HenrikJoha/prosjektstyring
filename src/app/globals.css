@@ -55,11 +55,16 @@ body {
   width: 8px;
   cursor: ew-resize;
   opacity: 0;
-  transition: opacity 0.2s;
+  transition: opacity 0.2s, background-color 0.2s;
+  background-color: rgba(0, 0, 0, 0.2);
 }
 
 .project-bar:hover .resize-handle {
   opacity: 1;
+}
+
+.resize-handle:hover {
+  background-color: rgba(0, 0, 0, 0.4);
 }
 
 .resize-handle-left {
@@ -68,6 +73,33 @@ body {
 
 .resize-handle-right {
   right: 0;
+}
+
+/* Larger touch targets on mobile/touch devices */
+@media (pointer: coarse) {
+  .resize-handle {
+    width: 24px;
+    opacity: 0.6;
+  }
+  
+  .resize-handle-left {
+    left: -8px;
+    border-radius: 4px 0 0 4px;
+  }
+  
+  .resize-handle-right {
+    right: -8px;
+    border-radius: 0 4px 4px 0;
+  }
+  
+  .project-bar {
+    /* Prevent hover effects on touch */
+    transform: none !important;
+  }
+  
+  .project-bar:active {
+    opacity: 0.9;
+  }
 }
 
 /* Calendar cell highlight */
@@ -92,6 +124,16 @@ body {
   border-right: 2px solid #e5e7eb;
 }
 
+/* Long press active indicator */
+.long-press-active {
+  touch-action: none;
+  overflow: hidden !important;
+}
+
+.long-press-active .calendar-cell {
+  cursor: crosshair;
+}
+
 /* Mobile responsiveness */
 @media (max-width: 768px) {
   .sidebar {
@@ -103,5 +145,12 @@ body {
     width: 100%;
     flex-direction: row;
     z-index: 50;
+  }
+}
+
+/* Touch feedback */
+@media (pointer: coarse) {
+  .calendar-cell:active {
+    background-color: rgba(59, 130, 246, 0.15);
   }
 }

@@ -97,7 +97,13 @@ export default function ScheduleView() {
   const [dragEnd, setDragEnd] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [modalData, setModalData] = useState<{ workerId: string; startDate: string; endDate: string } | null>(null);
+  const [isLongPressActive, setIsLongPressActive] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Long press handling for touch
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number; workerId: string; date: string } | null>(null);
+  const LONG_PRESS_DURATION = 300; // ms
 
   const weeks = useMemo(() => generateWeeks(startDate, WEEKS_TO_SHOW), [startDate]);
   const allDays = useMemo(() => weeks.flatMap(w => w.days), [weeks]);
@@ -170,23 +176,61 @@ export default function ScheduleView() {
     setDragEnd(null);
   }, [isDragging, dragStart, dragEnd]);
 
-  // Touch handlers for mobile
-  const handleTouchStart = useCallback((workerId: string, dateString: string) => {
-    setIsDragging(true);
-    setDragStart({ workerId, date: dateString });
-    setDragEnd(dateString);
+  // Touch handlers for mobile with long press
+  const handleTouchStart = useCallback((workerId: string, dateString: string, e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY, workerId, date: dateString };
+    
+    // Start long press timer
+    longPressTimerRef.current = setTimeout(() => {
+      setIsLongPressActive(true);
+      setIsDragging(true);
+      setDragStart({ workerId, date: dateString });
+      setDragEnd(dateString);
+      // Vibrate to indicate activation
+      if (navigator.vibrate) navigator.vibrate(50);
+    }, LONG_PRESS_DURATION);
   }, []);
 
-  const handleTouchMove = useCallback((e: React.TouchEvent, workerId: string) => {
-    if (!isDragging || !dragStart || dragStart.workerId !== workerId) return;
-    
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
     const touch = e.touches[0];
-    const element = document.elementFromPoint(touch.clientX, touch.clientY);
-    const dateString = element?.getAttribute('data-date');
-    if (dateString) {
-      setDragEnd(dateString);
+    
+    // If long press not yet active, check if we should cancel it (user is scrolling)
+    if (!isLongPressActive && touchStartPosRef.current && longPressTimerRef.current) {
+      const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
+      const dy = Math.abs(touch.clientY - touchStartPosRef.current.y);
+      if (dx > 10 || dy > 10) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+        return;
+      }
     }
-  }, [isDragging, dragStart]);
+    
+    // If dragging is active, update selection
+    if (isDragging && dragStart && isLongPressActive) {
+      e.preventDefault(); // Prevent scrolling while dragging
+      const element = document.elementFromPoint(touch.clientX, touch.clientY);
+      const dateString = element?.getAttribute('data-date');
+      if (dateString) {
+        setDragEnd(dateString);
+      }
+    }
+  }, [isDragging, dragStart, isLongPressActive]);
+
+  const handleTouchEnd = useCallback(() => {
+    // Clean up long press timer
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    touchStartPosRef.current = null;
+    
+    // If we were dragging, complete the selection
+    if (isDragging && isLongPressActive) {
+      handleMouseUp();
+    }
+    setIsLongPressActive(false);
+  }, [isDragging, isLongPressActive, handleMouseUp]);
 
   // Global mouse up handler
   useEffect(() => {
@@ -195,16 +239,9 @@ export default function ScheduleView() {
         handleMouseUp();
       }
     };
-    const handleGlobalTouchEnd = () => {
-      if (isDragging) {
-        handleMouseUp();
-      }
-    };
     window.addEventListener('mouseup', handleGlobalMouseUp);
-    window.addEventListener('touchend', handleGlobalTouchEnd);
     return () => {
       window.removeEventListener('mouseup', handleGlobalMouseUp);
-      window.removeEventListener('touchend', handleGlobalTouchEnd);
     };
   }, [isDragging, handleMouseUp]);
 
@@ -336,7 +373,13 @@ export default function ScheduleView() {
       </div>
 
       {/* Calendar Grid */}
-      <div className="flex-1 overflow-auto" ref={scrollContainerRef}>
+      <div 
+        className={clsx(
+          "flex-1 overflow-auto",
+          isLongPressActive && "long-press-active"
+        )} 
+        ref={scrollContainerRef}
+      >
         <div className="min-w-max">
           {/* Header with week numbers and days */}
           <div className="sticky top-0 z-20 bg-white border-b border-gray-200">
@@ -463,8 +506,9 @@ export default function ScheduleView() {
                                   style={{ width: CELL_WIDTH, height: rowHeight }}
                                   onMouseDown={() => handleMouseDown(worker.id, day.dateString)}
                                   onMouseMove={() => handleMouseMove(day.dateString)}
-                                  onTouchStart={() => handleTouchStart(worker.id, day.dateString)}
-                                  onTouchMove={(e) => handleTouchMove(e, worker.id)}
+                                  onTouchStart={(e) => handleTouchStart(worker.id, day.dateString, e)}
+                                  onTouchMove={handleTouchMove}
+                                  onTouchEnd={handleTouchEnd}
                                 />
                               );
                             })}

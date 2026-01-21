@@ -35,6 +35,7 @@ export default function AssignmentBar({
   const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [isLongPressActive, setIsLongPressActive] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
   
   // Store initial positions when drag starts
@@ -44,6 +45,11 @@ export default function AssignmentBar({
     containerLeft: number;
     duration: number;
   } | null>(null);
+  
+  // Long press timer for touch
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  const LONG_PRESS_DURATION = 300; // ms to wait before activating drag
 
   // Calculate date from pixel position relative to container
   const getDateFromPosition = useCallback((xPosition: number) => {
@@ -57,15 +63,11 @@ export default function AssignmentBar({
     return barRef.current?.parentElement;
   }, []);
 
-  // Handle bar drag (move)
-  const handleDragStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
+  // Initialize drag state
+  const initializeDrag = useCallback((clientX: number) => {
     const container = getContainer();
     if (!container) return;
     
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const containerRect = container.getBoundingClientRect();
     
     // Calculate duration in days
@@ -83,15 +85,56 @@ export default function AssignmentBar({
     setIsDragging(true);
   }, [getContainer, style.left, style.width, cellWidth, allDays, assignment.startDate, assignment.endDate]);
 
-  // Handle resize start
-  const handleResizeStart = useCallback((e: React.MouseEvent | React.TouchEvent, side: 'left' | 'right') => {
+  // Handle bar drag (move) - mouse
+  const handleMouseDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    initializeDrag(e.clientX);
+  }, [initializeDrag]);
+
+  // Handle touch start with long press
+  const handleTouchDragStart = useCallback((e: React.TouchEvent) => {
+    e.stopPropagation();
+    const touch = e.touches[0];
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
     
+    // Start long press timer
+    longPressTimerRef.current = setTimeout(() => {
+      setIsLongPressActive(true);
+      initializeDrag(touch.clientX);
+      // Vibrate to indicate activation (if supported)
+      if (navigator.vibrate) navigator.vibrate(50);
+    }, LONG_PRESS_DURATION);
+  }, [initializeDrag]);
+
+  // Cancel long press if touch moves too much before activation
+  const handleTouchMoveCancel = useCallback((e: React.TouchEvent) => {
+    if (!isLongPressActive && touchStartPosRef.current && longPressTimerRef.current) {
+      const touch = e.touches[0];
+      const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
+      const dy = Math.abs(touch.clientY - touchStartPosRef.current.y);
+      // If moved more than 10px, cancel long press (user is scrolling)
+      if (dx > 10 || dy > 10) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+    }
+  }, [isLongPressActive]);
+
+  // Clean up long press timer on touch end
+  const handleTouchEnd = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    touchStartPosRef.current = null;
+  }, []);
+
+  // Initialize resize state
+  const initializeResize = useCallback((clientX: number, side: 'left' | 'right') => {
     const container = getContainer();
     if (!container) return;
     
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const containerRect = container.getBoundingClientRect();
     
     dragStartRef.current = {
@@ -103,6 +146,52 @@ export default function AssignmentBar({
     
     setIsResizing(side);
   }, [getContainer, style.left]);
+
+  // Handle resize start - mouse
+  const handleMouseResizeStart = useCallback((e: React.MouseEvent, side: 'left' | 'right') => {
+    e.preventDefault();
+    e.stopPropagation();
+    initializeResize(e.clientX, side);
+  }, [initializeResize]);
+
+  // Long press refs for resize handles
+  const resizeLongPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const resizeTouchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Handle resize touch start with long press
+  const handleTouchResizeStart = useCallback((e: React.TouchEvent, side: 'left' | 'right') => {
+    e.stopPropagation();
+    const touch = e.touches[0];
+    resizeTouchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+    
+    resizeLongPressTimerRef.current = setTimeout(() => {
+      setIsLongPressActive(true);
+      initializeResize(touch.clientX, side);
+      if (navigator.vibrate) navigator.vibrate(50);
+    }, LONG_PRESS_DURATION);
+  }, [initializeResize]);
+
+  // Cancel resize long press if touch moves
+  const handleResizeTouchMoveCancel = useCallback((e: React.TouchEvent) => {
+    if (!isLongPressActive && resizeTouchStartPosRef.current && resizeLongPressTimerRef.current) {
+      const touch = e.touches[0];
+      const dx = Math.abs(touch.clientX - resizeTouchStartPosRef.current.x);
+      const dy = Math.abs(touch.clientY - resizeTouchStartPosRef.current.y);
+      if (dx > 10 || dy > 10) {
+        clearTimeout(resizeLongPressTimerRef.current);
+        resizeLongPressTimerRef.current = null;
+      }
+    }
+  }, [isLongPressActive]);
+
+  // Clean up resize long press timer
+  const handleResizeTouchEnd = useCallback(() => {
+    if (resizeLongPressTimerRef.current) {
+      clearTimeout(resizeLongPressTimerRef.current);
+      resizeLongPressTimerRef.current = null;
+    }
+    resizeTouchStartPosRef.current = null;
+  }, []);
 
   // Handle mouse/touch move for drag/resize
   useEffect(() => {
@@ -162,6 +251,7 @@ export default function AssignmentBar({
     const handleEnd = () => {
       setIsDragging(false);
       setIsResizing(null);
+      setIsLongPressActive(false);
       dragStartRef.current = null;
     };
 
@@ -239,29 +329,35 @@ export default function AssignmentBar({
         backgroundColor: project.color,
         color: textColor,
       }}
-      onMouseDown={handleDragStart}
-      onTouchStart={handleDragStart}
+      onMouseDown={handleMouseDragStart}
+      onTouchStart={handleTouchDragStart}
+      onTouchMove={handleTouchMoveCancel}
+      onTouchEnd={handleTouchEnd}
       onContextMenu={handleContextMenu}
       onDoubleClick={handleDoubleClick}
     >
-      {/* Resize handle left */}
+      {/* Resize handle left - larger touch target on mobile */}
       <div
-        className="resize-handle resize-handle-left bg-black/20 hover:bg-black/40"
-        onMouseDown={(e) => handleResizeStart(e, 'left')}
-        onTouchStart={(e) => handleResizeStart(e, 'left')}
+        className="resize-handle resize-handle-left"
+        onMouseDown={(e) => handleMouseResizeStart(e, 'left')}
+        onTouchStart={(e) => handleTouchResizeStart(e, 'left')}
+        onTouchMove={handleResizeTouchMoveCancel}
+        onTouchEnd={handleResizeTouchEnd}
       />
 
       {/* Content */}
-      <div className="flex items-center h-full px-2 gap-1">
-        <GripVertical size={14} className="flex-shrink-0 opacity-50" />
+      <div className="flex items-center h-full px-3 gap-1 pointer-events-none">
+        <GripVertical size={14} className="flex-shrink-0 opacity-50 hidden sm:block" />
         <span className="text-sm font-medium truncate">{project.name}</span>
       </div>
 
-      {/* Resize handle right */}
+      {/* Resize handle right - larger touch target on mobile */}
       <div
-        className="resize-handle resize-handle-right bg-black/20 hover:bg-black/40"
-        onMouseDown={(e) => handleResizeStart(e, 'right')}
-        onTouchStart={(e) => handleResizeStart(e, 'right')}
+        className="resize-handle resize-handle-right"
+        onMouseDown={(e) => handleMouseResizeStart(e, 'right')}
+        onTouchStart={(e) => handleTouchResizeStart(e, 'right')}
+        onTouchMove={handleResizeTouchMoveCancel}
+        onTouchEnd={handleResizeTouchEnd}
       />
 
       {/* Context menu */}
