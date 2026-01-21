@@ -49,9 +49,12 @@ export default function ProjectModal({
     amount: 0,
   });
 
-  // Separate special projects (sick leave, vacation) from regular projects
-  const specialProjects = projects.filter(p => 
-    p.status === 'active' && (p.projectType === 'sick_leave' || p.projectType === 'vacation')
+  // Separate sick leave, vacation, and regular projects
+  const sickLeaveProjects = projects.filter(p => 
+    p.status === 'active' && p.projectType === 'sick_leave'
+  );
+  const vacationProjects = projects.filter(p => 
+    p.status === 'active' && p.projectType === 'vacation'
   );
   const regularProjects = projects.filter(p => 
     p.status === 'active' && p.projectType === 'regular'
@@ -113,37 +116,57 @@ export default function ProjectModal({
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
           {mode === 'select' ? (
             <>
-              {/* Special options: Sick leave & Vacation */}
-              <div className="mb-4">
-                <div className="text-sm font-medium text-gray-500 mb-3">
-                  Fravær:
+              {/* Sick Leave Section */}
+              <div className="mb-4 p-4 bg-red-50 rounded-xl border border-red-100">
+                <div className="flex items-center gap-2 mb-3">
+                  <Thermometer size={18} className="text-red-600" />
+                  <span className="text-sm font-semibold text-red-800">Sykefravær</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  {specialProjects.map(project => (
+                  {sickLeaveProjects.map(project => (
                     <button
                       key={project.id}
                       onClick={() => handleSelectProject(project.id)}
-                      className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors text-left"
+                      className="flex items-center gap-2 p-3 bg-white border border-red-200 rounded-lg hover:border-red-400 hover:bg-red-50 transition-colors text-left"
                     >
                       <div
-                        className="w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center"
+                        className="w-3 h-3 rounded-full flex-shrink-0"
                         style={{ backgroundColor: project.color }}
-                      >
-                        {project.projectType === 'sick_leave' ? (
-                          <Thermometer size={20} className="text-white" />
-                        ) : (
-                          <Palmtree size={20} className="text-white" />
-                        )}
-                      </div>
-                      <div className="font-medium text-gray-900">
+                      />
+                      <span className="font-medium text-gray-900 text-sm">
                         {project.name}
-                      </div>
+                      </span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="border-t border-gray-200 my-4" />
+              {/* Vacation/Leave Section */}
+              <div className="mb-4 p-4 bg-amber-50 rounded-xl border border-amber-100">
+                <div className="flex items-center gap-2 mb-3">
+                  <Palmtree size={18} className="text-amber-600" />
+                  <span className="text-sm font-semibold text-amber-800">Fravær / Permisjon</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {vacationProjects.map(project => (
+                    <button
+                      key={project.id}
+                      onClick={() => handleSelectProject(project.id)}
+                      className="flex items-center gap-2 p-3 bg-white border border-amber-200 rounded-lg hover:border-amber-400 hover:bg-amber-50 transition-colors text-left"
+                    >
+                      <div
+                        className="w-3 h-3 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: project.color }}
+                      />
+                      <span className="font-medium text-gray-900 text-sm">
+                        {project.name}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-gray-200 my-5" />
 
               {/* Create new project button */}
               <button
