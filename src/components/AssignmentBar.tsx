@@ -36,26 +36,26 @@ export default function AssignmentBar({
   const [showMenu, setShowMenu] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [isLongPressActive, setIsLongPressActive] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
-  const hasDraggedRef = useRef(false); // Track if a drag occurred to prevent menu on click after drag
 
   // Check if this is the last assignment for this project
   const projectAssignments = assignments.filter(a => a.projectId === project.id);
   const isLastAssignment = projectAssignments.length === 1;
   
-  // Store initial positions when drag starts
+  // Store initial positions when drag starts - now includes pending state
   const dragStartRef = useRef<{
     mouseX: number;
     barLeft: number;
     containerLeft: number;
     duration: number;
+    isDragPending: boolean; // True until mouse moves enough to confirm drag
   } | null>(null);
   
   // Long press timer for touch
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
-  const LONG_PRESS_DURATION = 300; // ms to wait before activating drag
+  const LONG_PRESS_DURATION = 500; // ms to wait for long press on mobile
+  const DRAG_THRESHOLD = 5; // pixels to move before drag activates
 
   // Calculate date from pixel position relative to container
   const getDateFromPosition = useCallback((xPosition: number) => {
@@ -69,8 +69,8 @@ export default function AssignmentBar({
     return barRef.current?.parentElement;
   }, []);
 
-  // Initialize drag state
-  const initializeDrag = useCallback((clientX: number) => {
+  // Prepare for potential drag (doesn't start dragging yet)
+  const prepareDrag = useCallback((clientX: number) => {
     const container = getContainer();
     if (!container) return;
     
@@ -86,47 +86,58 @@ export default function AssignmentBar({
       barLeft: style.left,
       containerLeft: containerRect.left,
       duration: duration,
+      isDragPending: true, // Will become false once drag threshold is met
     };
-    
-    hasDraggedRef.current = true;
-    setIsDragging(true);
   }, [getContainer, style.left, style.width, cellWidth, allDays, assignment.startDate, assignment.endDate]);
 
-  // Handle bar drag (move) - mouse
+  // Handle mouse down - prepare for drag but don't start yet
   const handleMouseDragStart = useCallback((e: React.MouseEvent) => {
+    // Don't interfere with right-click
+    if (e.button !== 0) return;
     e.preventDefault();
-    e.stopPropagation();
-    initializeDrag(e.clientX);
-  }, [initializeDrag]);
+    prepareDrag(e.clientX);
+  }, [prepareDrag]);
 
-  // Handle touch start with long press
+  // Handle touch start - start long press timer for showing menu
   const handleTouchDragStart = useCallback((e: React.TouchEvent) => {
     e.stopPropagation();
     const touch = e.touches[0];
     touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
     
-    // Start long press timer
+    // Prepare drag in case user wants to drag after long press
+    prepareDrag(touch.clientX);
+    
+    // Start long press timer - will show menu if held without moving
     longPressTimerRef.current = setTimeout(() => {
-      setIsLongPressActive(true);
-      initializeDrag(touch.clientX);
-      // Vibrate to indicate activation (if supported)
+      // Long press completed without moving - show menu
+      setShowMenu(true);
       if (navigator.vibrate) navigator.vibrate(50);
+      // Clear the pending drag
+      dragStartRef.current = null;
+      touchStartPosRef.current = null;
     }, LONG_PRESS_DURATION);
-  }, [initializeDrag]);
+  }, [prepareDrag]);
 
-  // Cancel long press if touch moves too much before activation
+  // Cancel long press if touch moves - start drag instead
   const handleTouchMoveCancel = useCallback((e: React.TouchEvent) => {
-    if (!isLongPressActive && touchStartPosRef.current && longPressTimerRef.current) {
+    if (touchStartPosRef.current && longPressTimerRef.current) {
       const touch = e.touches[0];
       const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
       const dy = Math.abs(touch.clientY - touchStartPosRef.current.y);
-      // If moved more than 10px, cancel long press (user is scrolling)
-      if (dx > 10 || dy > 10) {
+      
+      // If moved more than threshold, cancel long press and start drag
+      if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
         clearTimeout(longPressTimerRef.current);
         longPressTimerRef.current = null;
+        
+        // Start actual dragging
+        if (dragStartRef.current?.isDragPending) {
+          dragStartRef.current.isDragPending = false;
+          setIsDragging(true);
+        }
       }
     }
-  }, [isLongPressActive]);
+  }, []);
 
   // Clean up long press timer on touch end
   const handleTouchEnd = useCallback(() => {
@@ -134,11 +145,18 @@ export default function AssignmentBar({
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
+    // If we had a pending drag that never started, it was a tap
+    if (dragStartRef.current?.isDragPending) {
+      dragStartRef.current = null;
+    }
     touchStartPosRef.current = null;
   }, []);
 
-  // Initialize resize state
-  const initializeResize = useCallback((clientX: number, side: 'left' | 'right') => {
+  // Resize state ref
+  const resizeSideRef = useRef<'left' | 'right' | null>(null);
+
+  // Prepare for resize (doesn't start resizing yet)
+  const prepareResize = useCallback((clientX: number, side: 'left' | 'right') => {
     const container = getContainer();
     if (!container) return;
     
@@ -149,79 +167,82 @@ export default function AssignmentBar({
       barLeft: style.left,
       containerLeft: containerRect.left,
       duration: 0,
+      isDragPending: true,
     };
-    
-    hasDraggedRef.current = true;
-    setIsResizing(side);
+    resizeSideRef.current = side;
   }, [getContainer, style.left]);
 
   // Handle resize start - mouse
   const handleMouseResizeStart = useCallback((e: React.MouseEvent, side: 'left' | 'right') => {
+    if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    initializeResize(e.clientX, side);
-  }, [initializeResize]);
+    prepareResize(e.clientX, side);
+  }, [prepareResize]);
 
-  // Long press refs for resize handles
-  const resizeLongPressTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const resizeTouchStartPosRef = useRef<{ x: number; y: number } | null>(null);
-
-  // Handle resize touch start with long press
+  // Handle resize touch start
   const handleTouchResizeStart = useCallback((e: React.TouchEvent, side: 'left' | 'right') => {
     e.stopPropagation();
     const touch = e.touches[0];
-    resizeTouchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
-    
-    resizeLongPressTimerRef.current = setTimeout(() => {
-      setIsLongPressActive(true);
-      initializeResize(touch.clientX, side);
-      if (navigator.vibrate) navigator.vibrate(50);
-    }, LONG_PRESS_DURATION);
-  }, [initializeResize]);
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+    prepareResize(touch.clientX, side);
+  }, [prepareResize]);
 
-  // Cancel resize long press if touch moves
+  // Handle resize touch move - start resizing if moved enough
   const handleResizeTouchMoveCancel = useCallback((e: React.TouchEvent) => {
-    if (!isLongPressActive && resizeTouchStartPosRef.current && resizeLongPressTimerRef.current) {
+    if (touchStartPosRef.current && dragStartRef.current?.isDragPending && resizeSideRef.current) {
       const touch = e.touches[0];
-      const dx = Math.abs(touch.clientX - resizeTouchStartPosRef.current.x);
-      const dy = Math.abs(touch.clientY - resizeTouchStartPosRef.current.y);
-      if (dx > 10 || dy > 10) {
-        clearTimeout(resizeLongPressTimerRef.current);
-        resizeLongPressTimerRef.current = null;
+      const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
+      
+      if (dx > DRAG_THRESHOLD) {
+        dragStartRef.current.isDragPending = false;
+        setIsResizing(resizeSideRef.current);
       }
     }
-  }, [isLongPressActive]);
-
-  // Clean up resize long press timer
-  const handleResizeTouchEnd = useCallback(() => {
-    if (resizeLongPressTimerRef.current) {
-      clearTimeout(resizeLongPressTimerRef.current);
-      resizeLongPressTimerRef.current = null;
-    }
-    resizeTouchStartPosRef.current = null;
   }, []);
 
-  // Handle mouse/touch move for drag/resize
-  useEffect(() => {
-    if (!isDragging && !isResizing) return;
-    if (!dragStartRef.current) return;
+  // Clean up resize touch
+  const handleResizeTouchEnd = useCallback(() => {
+    if (dragStartRef.current?.isDragPending) {
+      dragStartRef.current = null;
+    }
+    resizeSideRef.current = null;
+    touchStartPosRef.current = null;
+  }, []);
 
-    const handleMove = (clientX: number) => {
+  // Handle mouse move - check threshold and perform drag/resize
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragStartRef.current) return;
+
+      const dx = Math.abs(e.clientX - dragStartRef.current.mouseX);
+      
+      // Check if we should start dragging (threshold met)
+      if (dragStartRef.current.isDragPending && dx > DRAG_THRESHOLD) {
+        dragStartRef.current.isDragPending = false;
+        if (resizeSideRef.current) {
+          setIsResizing(resizeSideRef.current);
+        } else {
+          setIsDragging(true);
+        }
+        return;
+      }
+      
+      // If not actively dragging/resizing, don't do anything
+      if (!isDragging && !isResizing) return;
+
       const container = getContainer();
-      if (!container || !dragStartRef.current) return;
+      if (!container) return;
 
       const containerRect = container.getBoundingClientRect();
-      const relativeX = clientX - containerRect.left;
+      const relativeX = e.clientX - containerRect.left;
 
       if (isDragging) {
-        // Calculate how much the mouse moved
-        const mouseDelta = clientX - dragStartRef.current.mouseX;
-        // Calculate new bar position
+        const mouseDelta = e.clientX - dragStartRef.current.mouseX;
         const newLeft = dragStartRef.current.barLeft + mouseDelta;
         
         const newStartDate = getDateFromPosition(newLeft);
         if (newStartDate) {
-          // Calculate end date based on original duration
           const startIdx = allDays.findIndex(d => d.dateString === newStartDate);
           const endIdx = startIdx + dragStartRef.current.duration - 1;
           
@@ -250,17 +271,57 @@ export default function AssignmentBar({
       }
     };
 
-    const handleMouseMove = (e: MouseEvent) => handleMove(e.clientX);
     const handleTouchMove = (e: TouchEvent) => {
-      e.preventDefault();
-      handleMove(e.touches[0].clientX);
+      if ((isDragging || isResizing) && dragStartRef.current && !dragStartRef.current.isDragPending) {
+        e.preventDefault();
+        
+        const container = getContainer();
+        if (!container) return;
+
+        const containerRect = container.getBoundingClientRect();
+        const clientX = e.touches[0].clientX;
+        const relativeX = clientX - containerRect.left;
+
+        if (isDragging) {
+          const mouseDelta = clientX - dragStartRef.current.mouseX;
+          const newLeft = dragStartRef.current.barLeft + mouseDelta;
+          
+          const newStartDate = getDateFromPosition(newLeft);
+          if (newStartDate) {
+            const startIdx = allDays.findIndex(d => d.dateString === newStartDate);
+            const endIdx = startIdx + dragStartRef.current.duration - 1;
+            
+            if (startIdx >= 0 && endIdx < allDays.length) {
+              const endDate = allDays[endIdx]?.dateString;
+              if (endDate) {
+                updateAssignment(assignment.id, {
+                  startDate: newStartDate,
+                  endDate: endDate,
+                });
+              }
+            }
+          }
+        } else if (isResizing) {
+          if (isResizing === 'left') {
+            const newStartDate = getDateFromPosition(relativeX);
+            if (newStartDate && newStartDate <= assignment.endDate) {
+              updateAssignment(assignment.id, { startDate: newStartDate });
+            }
+          } else {
+            const newEndDate = getDateFromPosition(relativeX);
+            if (newEndDate && newEndDate >= assignment.startDate) {
+              updateAssignment(assignment.id, { endDate: newEndDate });
+            }
+          }
+        }
+      }
     };
 
     const handleEnd = () => {
       setIsDragging(false);
       setIsResizing(null);
-      setIsLongPressActive(false);
       dragStartRef.current = null;
+      resizeSideRef.current = null;
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -327,20 +388,14 @@ export default function AssignmentBar({
     }
   };
 
-  // Simple click to show menu (useful for mobile)
+  // Simple click to show menu - only works if not dragging
   const handleClick = (e: React.MouseEvent) => {
-    // Only trigger on simple click, not after drag/resize
-    if (hasDraggedRef.current) {
-      // Reset the flag after a short delay
-      setTimeout(() => {
-        hasDraggedRef.current = false;
-      }, 100);
+    // If there's a pending drag or active drag, don't show menu
+    if (dragStartRef.current || isDragging || isResizing) {
       return;
     }
-    if (!isDragging && !isResizing) {
-      e.stopPropagation();
-      setShowMenu(prev => !prev);
-    }
+    e.stopPropagation();
+    setShowMenu(prev => !prev);
   };
 
   // Determine text color based on background
