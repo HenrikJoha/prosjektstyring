@@ -16,6 +16,8 @@ interface AssignmentBarProps {
   allDays: DayData[];
   cellWidth: number;
   rowHeight: number;
+  lane: number;
+  totalLanes: number;
 }
 
 export default function AssignmentBar({
@@ -25,6 +27,8 @@ export default function AssignmentBar({
   allDays,
   cellWidth,
   rowHeight,
+  lane,
+  totalLanes,
 }: AssignmentBarProps) {
   const { updateAssignment, deleteAssignment } = useStore();
   const [isDragging, setIsDragging] = useState(false);
@@ -212,6 +216,14 @@ export default function AssignmentBar({
 
   const textColor = getContrastColor(project.color);
 
+  // Calculate bar dimensions based on lane
+  const padding = 4;
+  const availableHeight = rowHeight - (padding * 2);
+  const barHeight = totalLanes > 1 
+    ? (availableHeight / totalLanes) - 2 // Small gap between lanes
+    : availableHeight - 8; // Standard padding when single lane
+  const barTop = padding + (lane * (availableHeight / totalLanes)) + (totalLanes > 1 ? 1 : 4);
+
   return (
     <div
       ref={barRef}
@@ -222,8 +234,8 @@ export default function AssignmentBar({
       style={{
         left: style.left,
         width: style.width,
-        top: 8,
-        height: rowHeight - 16,
+        top: barTop,
+        height: barHeight,
         backgroundColor: project.color,
         color: textColor,
       }}

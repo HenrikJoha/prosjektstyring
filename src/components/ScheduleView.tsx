@@ -10,8 +10,84 @@ import clsx from 'clsx';
 import { ChevronLeft, ChevronRight, Users } from 'lucide-react';
 
 const CELL_WIDTH = 40;
-const ROW_HEIGHT = 60;
+const BASE_ROW_HEIGHT = 60;
 const WEEKS_TO_SHOW = 12;
+
+// Helper to check if two date ranges overlap
+function dateRangesOverlap(
+  start1: string, end1: string,
+  start2: string, end2: string
+): boolean {
+  return start1 <= end2 && end1 >= start2;
+}
+
+// Helper to check if assignment is visible in current view
+function isAssignmentVisible(
+  assignment: { startDate: string; endDate: string },
+  viewStart: string,
+  viewEnd: string
+): boolean {
+  return dateRangesOverlap(assignment.startDate, assignment.endDate, viewStart, viewEnd);
+}
+
+// Calculate lane assignments for overlapping bars
+function calculateLanes(
+  assignments: { id: string; startDate: string; endDate: string }[],
+  viewStart: string,
+  viewEnd: string
+): Map<string, { lane: number; totalLanes: number }> {
+  // Filter to only visible assignments
+  const visibleAssignments = assignments.filter(a => 
+    isAssignmentVisible(a, viewStart, viewEnd)
+  );
+  
+  if (visibleAssignments.length === 0) {
+    return new Map();
+  }
+  
+  // Sort by start date
+  const sorted = [...visibleAssignments].sort((a, b) => 
+    a.startDate.localeCompare(b.startDate)
+  );
+  
+  // Assign lanes using a greedy algorithm
+  const laneEndDates: string[] = []; // Track when each lane becomes free
+  const laneAssignments = new Map<string, number>();
+  
+  for (const assignment of sorted) {
+    // Find the first available lane
+    let assignedLane = -1;
+    for (let i = 0; i < laneEndDates.length; i++) {
+      if (laneEndDates[i] < assignment.startDate) {
+        assignedLane = i;
+        break;
+      }
+    }
+    
+    if (assignedLane === -1) {
+      // Need a new lane
+      assignedLane = laneEndDates.length;
+      laneEndDates.push(assignment.endDate);
+    } else {
+      laneEndDates[assignedLane] = assignment.endDate;
+    }
+    
+    laneAssignments.set(assignment.id, assignedLane);
+  }
+  
+  const totalLanes = laneEndDates.length;
+  
+  // Create result map with lane info
+  const result = new Map<string, { lane: number; totalLanes: number }>();
+  for (const assignment of visibleAssignments) {
+    result.set(assignment.id, {
+      lane: laneAssignments.get(assignment.id) || 0,
+      totalLanes
+    });
+  }
+  
+  return result;
+}
 
 export default function ScheduleView() {
   const { workers, projects, assignments, addAssignment } = useStore();
@@ -25,6 +101,10 @@ export default function ScheduleView() {
 
   const weeks = useMemo(() => generateWeeks(startDate, WEEKS_TO_SHOW), [startDate]);
   const allDays = useMemo(() => weeks.flatMap(w => w.days), [weeks]);
+  
+  // Get the visible date range
+  const viewStartDate = allDays[0]?.dateString || '';
+  const viewEndDate = allDays[allDays.length - 1]?.dateString || '';
 
   // Group workers by project leader
   const projectLeaders = workers.filter(w => w.role === 'prosjektleder');
@@ -141,13 +221,43 @@ export default function ScheduleView() {
     return date >= minDate && date <= maxDate;
   };
 
-  // Get assignments for a specific worker
-  const getWorkerAssignments = (workerId: string) => {
+  // Get assignments for a specific worker (active projects only)
+  const getWorkerAssignments = useCallback((workerId: string) => {
     return assignments.filter(a => {
       const project = projects.find(p => p.id === a.projectId);
       return a.workerId === workerId && project?.status === 'active';
     });
-  };
+  }, [assignments, projects]);
+
+  // Calculate lane info for all workers
+  const workerLaneInfo = useMemo(() => {
+    const result = new Map<string, Map<string, { lane: number; totalLanes: number }>>();
+    
+    for (const worker of flatWorkers) {
+      const workerAssignments = getWorkerAssignments(worker.id);
+      const laneInfo = calculateLanes(workerAssignments, viewStartDate, viewEndDate);
+      result.set(worker.id, laneInfo);
+    }
+    
+    return result;
+  }, [flatWorkers, getWorkerAssignments, viewStartDate, viewEndDate]);
+
+  // Get row height for a worker based on overlapping assignments
+  const getWorkerRowHeight = useCallback((workerId: string) => {
+    const laneInfo = workerLaneInfo.get(workerId);
+    if (!laneInfo || laneInfo.size === 0) return BASE_ROW_HEIGHT;
+    
+    // Get max lanes from any assignment
+    let maxLanes = 1;
+    laneInfo.forEach(info => {
+      if (info.totalLanes > maxLanes) maxLanes = info.totalLanes;
+    });
+    
+    if (maxLanes <= 1) return BASE_ROW_HEIGHT;
+    
+    // Increase height by 40% for each additional lane
+    return BASE_ROW_HEIGHT + (maxLanes - 1) * (BASE_ROW_HEIGHT * 0.4);
+  }, [workerLaneInfo]);
 
   // Calculate bar position and width
   const getBarStyle = (assignment: ProjectAssignment) => {
@@ -298,6 +408,8 @@ export default function ScheduleView() {
                   const workerAssignments = getWorkerAssignments(worker.id);
                   const isLeader = worker.role === 'prosjektleder';
                   const isFirstInGroup = memberIdx === 0;
+                  const rowHeight = getWorkerRowHeight(worker.id);
+                  const laneInfo = workerLaneInfo.get(worker.id);
 
                   return (
                     <div
@@ -307,7 +419,7 @@ export default function ScheduleView() {
                         isFirstInGroup && groupIdx > 0 && 'border-t-2 border-gray-200',
                         isLeader ? 'bg-blue-50/30' : 'bg-white'
                       )}
-                      style={{ height: ROW_HEIGHT }}
+                      style={{ height: rowHeight }}
                     >
                       {/* Worker name column */}
                       <div className={clsx(
@@ -348,7 +460,7 @@ export default function ScheduleView() {
                                     day.isHoliday && !isSelected && 'bg-red-50/50',
                                     isLastDayOfWeek && weekIdx < weeks.length - 1 && 'border-r-2 border-r-gray-300'
                                   )}
-                                  style={{ width: CELL_WIDTH, height: ROW_HEIGHT }}
+                                  style={{ width: CELL_WIDTH, height: rowHeight }}
                                   onMouseDown={() => handleMouseDown(worker.id, day.dateString)}
                                   onMouseMove={() => handleMouseMove(day.dateString)}
                                   onTouchStart={() => handleTouchStart(worker.id, day.dateString)}
@@ -363,6 +475,7 @@ export default function ScheduleView() {
                         {workerAssignments.map(assignment => {
                           const project = projects.find(p => p.id === assignment.projectId);
                           const style = getBarStyle(assignment);
+                          const assignmentLaneInfo = laneInfo?.get(assignment.id);
                           
                           if (!project || !style) return null;
 
@@ -374,7 +487,9 @@ export default function ScheduleView() {
                               style={style}
                               allDays={allDays}
                               cellWidth={CELL_WIDTH}
-                              rowHeight={ROW_HEIGHT}
+                              rowHeight={rowHeight}
+                              lane={assignmentLaneInfo?.lane || 0}
+                              totalLanes={assignmentLaneInfo?.totalLanes || 1}
                             />
                           );
                         })}
