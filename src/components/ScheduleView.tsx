@@ -190,7 +190,7 @@ export default function ScheduleView() {
         <Users size={64} className="mb-4 opacity-50" />
         <h2 className="text-xl font-semibold mb-2">Ingen ansatte</h2>
         <p className="text-center">
-          Gå til "Ansatte"-fanen for å legge til ansatte før du kan planlegge prosjekter.
+          Gå til &quot;Ansatte&quot;-fanen for å legge til ansatte før du kan planlegge prosjekter.
         </p>
       </div>
     );

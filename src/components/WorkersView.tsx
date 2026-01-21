@@ -146,7 +146,7 @@ export default function WorkersView() {
           <div className="text-center py-12 text-gray-500">
             <Users size={48} className="mx-auto mb-4 opacity-50" />
             <p>Ingen ansatte lagt til ennå.</p>
-            <p className="text-sm">Klikk på "Legg til ansatt" for å starte.</p>
+            <p className="text-sm">Klikk på &quot;Legg til ansatt&quot; for å starte.</p>
           </div>
         ) : (
           <div className="space-y-6">
