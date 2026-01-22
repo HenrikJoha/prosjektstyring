@@ -25,6 +25,7 @@ export interface DbProject {
   status: 'active' | 'completed';
   project_type: 'regular' | 'sick_leave' | 'vacation';
   is_system: boolean;
+  project_leader_id: string | null;
   created_at: string;
   updated_at: string;
 }

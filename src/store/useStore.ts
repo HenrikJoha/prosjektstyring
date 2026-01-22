@@ -60,6 +60,7 @@ const dbProjectToProject = (db: DbProject): Project => ({
   status: db.status,
   projectType: db.project_type,
   isSystem: db.is_system,
+  projectLeaderId: db.project_leader_id || undefined,
   createdAt: db.created_at,
 });
 
@@ -171,6 +172,7 @@ export const useStore = create<AppState>()((set, get) => ({
         a_konto_percent: project.aKontoPercent,
         status: project.status,
         project_type: project.projectType || 'regular',
+        project_leader_id: project.projectLeaderId || null,
       })
       .select()
       .single();
@@ -196,6 +198,7 @@ export const useStore = create<AppState>()((set, get) => ({
     if (updates.aKontoPercent !== undefined) dbUpdates.a_konto_percent = updates.aKontoPercent;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
     if (updates.projectType !== undefined) dbUpdates.project_type = updates.projectType;
+    if (updates.projectLeaderId !== undefined) dbUpdates.project_leader_id = updates.projectLeaderId || null;
     
     const { error } = await supabase
       .from('projects')

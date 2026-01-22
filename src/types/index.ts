@@ -26,6 +26,7 @@ export interface Project {
   status: 'active' | 'completed';
   projectType: ProjectType; // regular, sick_leave, or vacation
   isSystem: boolean; // System projects (sick leave, vacation) cannot be deleted
+  projectLeaderId?: string; // The project leader responsible for this project
   createdAt: string;
 }
 

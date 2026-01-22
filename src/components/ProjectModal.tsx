@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useStore } from '@/store/useStore';
 import { parseISO, format } from '@/utils/dates';
-import { X, Plus, Check } from 'lucide-react';
+import { X, Plus, Check, User } from 'lucide-react';
 import clsx from 'clsx';
 
 const PROJECT_COLORS = [
@@ -61,6 +61,18 @@ export default function ProjectModal({
   );
   const worker = workers.find(w => w.id === workerId);
 
+  // Determine the project leader for this assignment
+  const projectLeader = useMemo(() => {
+    if (!worker) return null;
+    
+    if (worker.role === 'prosjektleder') {
+      return worker;
+    } else if (worker.projectLeaderId) {
+      return workers.find(w => w.id === worker.projectLeaderId);
+    }
+    return null;
+  }, [worker, workers]);
+
   const formatDateRange = () => {
     const start = parseISO(startDate);
     const end = parseISO(endDate);
@@ -81,6 +93,7 @@ export default function ProjectModal({
         status: 'active',
         projectType: 'regular',
         isSystem: false,
+        projectLeaderId: projectLeader?.id,
       });
       if (createdId) {
         onSelect(createdId);
@@ -181,28 +194,31 @@ export default function ProjectModal({
                     Eller velg eksisterende prosjekt:
                   </div>
                   <div className="space-y-2">
-                    {regularProjects.map(project => (
-                      <button
-                        key={project.id}
-                        onClick={() => handleSelectProject(project.id)}
-                        className="w-full flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors text-left"
-                      >
-                        <div
-                          className="w-10 h-10 rounded-lg flex-shrink-0"
-                          style={{ backgroundColor: project.color }}
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-gray-900 truncate">
-                            {project.name}
-                          </div>
-                          {project.description && (
-                            <div className="text-sm text-gray-500 truncate">
-                              {project.description}
+                    {regularProjects.map(project => {
+                      const leader = workers.find(w => w.id === project.projectLeaderId);
+                      return (
+                        <button
+                          key={project.id}
+                          onClick={() => handleSelectProject(project.id)}
+                          className="w-full flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors text-left"
+                        >
+                          <div
+                            className="w-10 h-10 rounded-lg flex-shrink-0"
+                            style={{ backgroundColor: project.color }}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-gray-900 truncate">
+                              {project.name}
                             </div>
-                          )}
-                        </div>
-                      </button>
-                    ))}
+                            {leader && (
+                              <div className="text-sm text-gray-500 truncate">
+                                {leader.name}
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </>
               )}
@@ -222,6 +238,16 @@ export default function ProjectModal({
               >
                 ← Tilbake til valg
               </button>
+
+              {/* Project leader info */}
+              {projectLeader && (
+                <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-100 flex items-center gap-2">
+                  <User size={16} className="text-blue-600" />
+                  <span className="text-sm text-blue-800">
+                    Prosjektleder: <span className="font-medium">{projectLeader.name}</span>
+                  </span>
+                </div>
+              )}
 
               {/* Create form */}
               <div className="space-y-4">
