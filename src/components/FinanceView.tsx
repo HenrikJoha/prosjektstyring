@@ -1,11 +1,79 @@
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from '@/store/useStore';
-import { Project } from '@/types';
+import { Project, Worker } from '@/types';
 import { formatCurrency, parseISO, eachDayOfInterval } from '@/utils/dates';
 import { Check, X, DollarSign, TrendingUp, Trash2, Plus, User, ChevronDown } from 'lucide-react';
 import clsx from 'clsx';
+
+// Dropdown component that renders via portal and positions smartly
+interface LeaderDropdownProps {
+  buttonRef: HTMLButtonElement | null;
+  leaders: Worker[];
+  onSelect: (leaderId: string) => void;
+  onClose: () => void;
+}
+
+function LeaderDropdown({ buttonRef, leaders, onSelect, onClose }: LeaderDropdownProps) {
+  const [position, setPosition] = useState({ top: 0, left: 0, showAbove: false });
+  
+  useEffect(() => {
+    if (!buttonRef) return;
+    
+    const updatePosition = () => {
+      const rect = buttonRef.getBoundingClientRect();
+      const dropdownHeight = Math.min(leaders.length * 40 + 8, 200); // Estimate height
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const showAbove = spaceBelow < dropdownHeight + 10;
+      
+      setPosition({
+        top: showAbove ? rect.top - dropdownHeight - 4 : rect.bottom + 4,
+        left: rect.left,
+        showAbove,
+      });
+    };
+    
+    updatePosition();
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+    
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [buttonRef, leaders.length]);
+  
+  if (typeof window === 'undefined') return null;
+  
+  return createPortal(
+    <>
+      {/* Backdrop */}
+      <div 
+        className="fixed inset-0 z-40" 
+        onClick={onClose}
+      />
+      {/* Dropdown */}
+      <div
+        className="fixed z-50 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[200px] max-h-[200px] overflow-y-auto"
+        style={{ top: position.top, left: position.left }}
+      >
+        {leaders.map(l => (
+          <button
+            key={l.id}
+            onClick={() => onSelect(l.id)}
+            className="w-full px-4 py-2 text-left text-sm hover:bg-blue-50 flex items-center gap-2"
+          >
+            <User size={14} className="text-gray-400" />
+            {l.name}
+          </button>
+        ))}
+      </div>
+    </>,
+    document.body
+  );
+}
 
 // Helper to check if a date is a weekend
 function isWeekend(date: Date): boolean {
@@ -44,7 +112,7 @@ export default function FinanceView() {
   });
 
   // Assign leader dropdown state
-  const [assigningLeaderId, setAssigningLeaderId] = useState<string | null>(null);
+  const [assigningLeader, setAssigningLeader] = useState<{ projectId: string; buttonRef: HTMLButtonElement | null } | null>(null);
 
   // Get all project leaders
   const projectLeaders = workers.filter(w => w.role === 'prosjektleder');
@@ -177,192 +245,15 @@ export default function FinanceView() {
 
   const handleAssignLeader = (projectId: string, leaderId: string) => {
     updateProject(projectId, { projectLeaderId: leaderId });
-    setAssigningLeaderId(null);
+    setAssigningLeader(null);
   };
 
-  // Render a project row
-  const renderProjectRow = (project: Project, showLeaderColumn: boolean) => {
-    const { fakturert, ordrereserve } = getProjectFinance(project.id);
-    const isEditingAmount = editingId === project.id && editField === 'amount';
-    const isEditingAkonto = editingId === project.id && editField === 'akonto';
-    const status = projectStatus.get(project.id);
-    const leader = workers.find(w => w.id === project.projectLeaderId);
-    const isAssigning = assigningLeaderId === project.id;
-
-    return (
-      <tr key={project.id} className="hover:bg-gray-50">
-        {showLeaderColumn && (
-          <td className="px-4 py-4 relative">
-            {isAssigning ? (
-              <div className="absolute z-10 top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[200px]">
-                {projectLeaders.map(l => (
-                  <button
-                    key={l.id}
-                    onClick={() => handleAssignLeader(project.id, l.id)}
-                    className="w-full px-4 py-2 text-left text-sm hover:bg-blue-50 flex items-center gap-2"
-                  >
-                    <User size={14} className="text-gray-400" />
-                    {l.name}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            <button
-              onClick={() => setAssigningLeaderId(isAssigning ? null : project.id)}
-              className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2 py-1 rounded"
-            >
-              <User size={14} />
-              <span>{leader?.name || 'Velg...'}</span>
-              <ChevronDown size={14} />
-            </button>
-          </td>
-        )}
-        <td className="px-4 py-4">
-          <div className="flex items-center gap-3">
-            <div
-              className="w-4 h-4 rounded-full flex-shrink-0"
-              style={{ backgroundColor: project.color }}
-            />
-            <div>
-              <div className="font-medium text-gray-900">{project.name}</div>
-              {project.description && (
-                <div className="text-sm text-gray-500 truncate max-w-xs">
-                  {project.description}
-                </div>
-              )}
-            </div>
-          </div>
-        </td>
-        
-        <td 
-          className={clsx(
-            "px-4 py-4 text-right",
-            !isEditingAmount && "cursor-pointer hover:bg-blue-50"
-          )}
-          onClick={() => !isEditingAmount && handleEdit(project.id, 'amount', project.amount)}
-        >
-          {isEditingAmount ? (
-            <div className="flex items-center justify-end gap-2">
-              <input
-                ref={inputRef}
-                type="number"
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                onKeyDown={(e) => handleKeyDown(e, project.id)}
-                onFocus={(e) => e.target.select()}
-                min={0}
-                className="w-28 px-2 py-1 border border-blue-500 rounded text-right focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                placeholder="0"
-              />
-              <button
-                onClick={(e) => { e.stopPropagation(); handleSave(project.id); }}
-                className="p-1 text-green-600 hover:bg-green-50 rounded"
-              >
-                <Check size={16} />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); handleCancel(); }}
-                className="p-1 text-gray-400 hover:bg-gray-100 rounded"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          ) : (
-            <span className="font-medium text-gray-900">{formatCurrency(project.amount)}</span>
-          )}
-        </td>
-        
-        <td 
-          className={clsx(
-            "px-4 py-4 text-right",
-            !isEditingAkonto && "cursor-pointer hover:bg-blue-50"
-          )}
-          onClick={() => !isEditingAkonto && handleEdit(project.id, 'akonto', project.aKontoPercent)}
-        >
-          {isEditingAkonto ? (
-            <div className="flex items-center justify-end gap-2">
-              <input
-                ref={inputRef}
-                type="number"
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                onKeyDown={(e) => handleKeyDown(e, project.id)}
-                onFocus={(e) => e.target.select()}
-                min={0}
-                max={100}
-                className="w-16 px-2 py-1 border border-blue-500 rounded text-right focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                placeholder="0"
-              />
-              <span>%</span>
-              <button
-                onClick={(e) => { e.stopPropagation(); handleSave(project.id); }}
-                className="p-1 text-green-600 hover:bg-green-50 rounded"
-              >
-                <Check size={16} />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); handleCancel(); }}
-                className="p-1 text-gray-400 hover:bg-gray-100 rounded"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          ) : (
-            <span className="font-medium">{project.aKontoPercent}%</span>
-          )}
-        </td>
-        
-        <td className="px-4 py-4 text-right font-medium text-green-600">
-          {formatCurrency(fakturert)}
-        </td>
-        <td className="px-4 py-4 text-right font-medium text-orange-600">
-          {formatCurrency(ordrereserve)}
-        </td>
-        <td className="px-4 py-4">
-          {(!status || status.plannedDays === 0) ? (
-            <span className="text-gray-400 text-sm text-center block">-</span>
-          ) : (
-            <div className="flex flex-col items-center gap-1">
-              <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div 
-                  className={clsx(
-                    'h-full rounded-full transition-all',
-                    status.percentage >= 100 ? 'bg-green-500' : 
-                    status.percentage >= 75 ? 'bg-blue-500' :
-                    status.percentage >= 50 ? 'bg-yellow-500' : 'bg-gray-400'
-                  )}
-                  style={{ width: `${Math.min(100, status.percentage)}%` }}
-                />
-              </div>
-              <span className="text-xs text-gray-500">
-                {status.percentage}%
-              </span>
-            </div>
-          )}
-        </td>
-        <td className="px-4 py-4 text-center">
-          <div className="flex items-center justify-center gap-2">
-            <button
-              onClick={() => updateProject(project.id, { status: 'completed' })}
-              className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-600 rounded-full hover:bg-green-100 hover:text-green-700 transition-colors"
-            >
-              Fullført
-            </button>
-            <button
-              onClick={() => {
-                if (confirm('Er du sikker på at du vil slette dette prosjektet?')) {
-                  deleteProject(project.id);
-                }
-              }}
-              className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-              title="Slett prosjekt"
-            >
-              <Trash2 size={16} />
-            </button>
-          </div>
-        </td>
-      </tr>
-    );
+  const handleOpenLeaderDropdown = (projectId: string, buttonRef: HTMLButtonElement | null) => {
+    if (assigningLeader?.projectId === projectId) {
+      setAssigningLeader(null);
+    } else {
+      setAssigningLeader({ projectId, buttonRef });
+    }
   };
 
   return (
@@ -453,23 +344,9 @@ export default function FinanceView() {
                       {/* Project rows */}
                       {group.projects.map(project => (
                         <tr key={project.id} className="hover:bg-gray-50 border-t border-gray-100">
-                          <td className="px-4 py-4 relative">
-                            {assigningLeaderId === project.id && (
-                              <div className="absolute z-10 top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[200px]">
-                                {projectLeaders.map(l => (
-                                  <button
-                                    key={l.id}
-                                    onClick={() => handleAssignLeader(project.id, l.id)}
-                                    className="w-full px-4 py-2 text-left text-sm hover:bg-blue-50 flex items-center gap-2"
-                                  >
-                                    <User size={14} className="text-gray-400" />
-                                    {l.name}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
+                          <td className="px-4 py-4">
                             <button
-                              onClick={() => setAssigningLeaderId(assigningLeaderId === project.id ? null : project.id)}
+                              onClick={(e) => handleOpenLeaderDropdown(project.id, e.currentTarget)}
                               className={clsx(
                                 "flex items-center gap-1 text-sm px-2 py-1 rounded",
                                 group.leader 
@@ -839,11 +716,13 @@ export default function FinanceView() {
         </div>
       )}
 
-      {/* Click outside to close dropdown */}
-      {assigningLeaderId && (
-        <div 
-          className="fixed inset-0 z-0" 
-          onClick={() => setAssigningLeaderId(null)}
+      {/* Leader selection dropdown - rendered via portal */}
+      {assigningLeader && (
+        <LeaderDropdown
+          buttonRef={assigningLeader.buttonRef}
+          leaders={projectLeaders}
+          onSelect={(leaderId) => handleAssignLeader(assigningLeader.projectId, leaderId)}
+          onClose={() => setAssigningLeader(null)}
         />
       )}
     </div>
