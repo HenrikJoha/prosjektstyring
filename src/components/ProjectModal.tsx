@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { parseISO, format } from '@/utils/dates';
-import { X, Plus, Check, Thermometer, Palmtree } from 'lucide-react';
+import { X, Plus, Check } from 'lucide-react';
 import clsx from 'clsx';
 
 const PROJECT_COLORS = [
@@ -119,10 +119,7 @@ export default function ProjectModal({
             <>
               {/* Sick Leave Section */}
               <div className="mb-4 p-4 bg-red-50 rounded-xl border border-red-100">
-                <div className="flex items-center gap-2 mb-3">
-                  <Thermometer size={18} className="text-red-600" />
-                  <span className="text-sm font-semibold text-red-800">Sykefravær</span>
-                </div>
+                <div className="text-sm font-semibold text-red-800 mb-3">Sykefravær</div>
                 <div className="grid grid-cols-2 gap-2">
                   {sickLeaveProjects.map(project => (
                     <button
@@ -143,17 +140,14 @@ export default function ProjectModal({
               </div>
 
               {/* Vacation/Leave Section */}
-              <div className="mb-4 p-4 bg-amber-50 rounded-xl border border-amber-100">
-                <div className="flex items-center gap-2 mb-3">
-                  <Palmtree size={18} className="text-amber-600" />
-                  <span className="text-sm font-semibold text-amber-800">Fravær / Permisjon</span>
-                </div>
+              <div className="mb-4 p-4 bg-yellow-50 rounded-xl border border-yellow-200">
+                <div className="text-sm font-semibold text-yellow-700 mb-3">Fravær / Permisjon</div>
                 <div className="grid grid-cols-3 gap-2">
                   {vacationProjects.map(project => (
                     <button
                       key={project.id}
                       onClick={() => handleSelectProject(project.id)}
-                      className="flex items-center gap-2 p-3 bg-white border border-amber-200 rounded-lg hover:border-amber-400 hover:bg-amber-50 transition-colors text-left"
+                      className="flex items-center gap-2 p-3 bg-white border border-yellow-300 rounded-lg hover:border-yellow-500 hover:bg-yellow-50 transition-colors text-left"
                     >
                       <div
                         className="w-3 h-3 rounded-full flex-shrink-0"
