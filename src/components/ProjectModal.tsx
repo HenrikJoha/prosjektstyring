@@ -47,6 +47,7 @@ export default function ProjectModal({
     description: '',
     color: PROJECT_COLORS[Math.floor(Math.random() * PROJECT_COLORS.length)],
     amount: 0,
+    billingType: 'tilbud' as 'tilbud' | 'timer_materiell',
   });
 
   // Separate sick leave, vacation, and regular projects
@@ -90,6 +91,8 @@ export default function ProjectModal({
         color: newProject.color,
         amount: newProject.amount,
         aKontoPercent: 0,
+        fakturert: 0,
+        billingType: newProject.billingType,
         status: 'active',
         projectType: 'regular',
         isSystem: false,
@@ -263,6 +266,20 @@ export default function ProjectModal({
                     placeholder="F.eks. Klokkerjordet 16"
                     autoFocus
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Prosjekttype
+                  </label>
+                  <select
+                    value={newProject.billingType}
+                    onChange={(e) => setNewProject({ ...newProject, billingType: e.target.value as 'tilbud' | 'timer_materiell' })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="tilbud">Tilbud</option>
+                    <option value="timer_materiell">Timer og materiell</option>
+                  </select>
                 </div>
 
                 <div>

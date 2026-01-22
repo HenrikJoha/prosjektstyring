@@ -22,6 +22,8 @@ export interface DbProject {
   color: string;
   amount: number;
   a_konto_percent: number;
+  fakturert: number;
+  billing_type: 'tilbud' | 'timer_materiell';
   status: 'active' | 'completed';
   project_type: 'regular' | 'sick_leave' | 'vacation';
   is_system: boolean;

@@ -97,7 +97,7 @@ const PROJECT_COLORS = [
 export default function FinanceView() {
   const { projects, assignments, workers, updateProject, deleteProject, addProject, getProjectFinance, getTotalOrdrereserve } = useStore();
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editField, setEditField] = useState<'akonto' | 'amount' | null>(null);
+  const [editField, setEditField] = useState<'akonto' | 'amount' | 'fakturert' | null>(null);
   const [editValue, setEditValue] = useState<string>('');
   const inputRef = useRef<HTMLInputElement>(null);
   
@@ -109,6 +109,7 @@ export default function FinanceView() {
     color: PROJECT_COLORS[Math.floor(Math.random() * PROJECT_COLORS.length)],
     amount: '',
     projectLeaderId: '',
+    billingType: 'tilbud' as 'tilbud' | 'timer_materiell',
   });
 
   // Assign leader dropdown state
@@ -188,7 +189,7 @@ export default function FinanceView() {
     return statusMap;
   }, [activeProjects, assignments]);
 
-  const handleEdit = (projectId: string, field: 'akonto' | 'amount', currentValue: number) => {
+  const handleEdit = (projectId: string, field: 'akonto' | 'amount' | 'fakturert', currentValue: number) => {
     setEditingId(projectId);
     setEditField(field);
     setEditValue(currentValue === 0 ? '' : currentValue.toString());
@@ -196,10 +197,20 @@ export default function FinanceView() {
 
   const handleSave = (projectId: string) => {
     const numValue = editValue === '' ? 0 : Number(editValue);
+    const project = projects.find(p => p.id === projectId);
+    
     if (editField === 'akonto') {
       updateProject(projectId, { aKontoPercent: Math.min(100, Math.max(0, numValue)) });
     } else if (editField === 'amount') {
       updateProject(projectId, { amount: Math.max(0, numValue) });
+    } else if (editField === 'fakturert') {
+      // For timer_materiell: if fakturert > amount, auto-set amount to match
+      const fakturertValue = Math.max(0, numValue);
+      if (project && fakturertValue > project.amount) {
+        updateProject(projectId, { fakturert: fakturertValue, amount: fakturertValue });
+      } else {
+        updateProject(projectId, { fakturert: fakturertValue });
+      }
     }
     setEditingId(null);
     setEditField(null);
@@ -227,6 +238,8 @@ export default function FinanceView() {
         color: newProject.color,
         amount: newProject.amount === '' ? 0 : Number(newProject.amount),
         aKontoPercent: 0,
+        fakturert: 0,
+        billingType: newProject.billingType,
         status: 'active',
         projectType: 'regular',
         isSystem: false,
@@ -238,6 +251,7 @@ export default function FinanceView() {
         color: PROJECT_COLORS[Math.floor(Math.random() * PROJECT_COLORS.length)],
         amount: '',
         projectLeaderId: '',
+        billingType: 'tilbud',
       });
       setShowCreateModal(false);
     }
@@ -423,14 +437,17 @@ export default function FinanceView() {
                             )}
                           </td>
                           
+                          {/* A konto % column - only editable for 'tilbud' type */}
                           <td 
                             className={clsx(
                               "px-4 py-4 text-right",
-                              !(editingId === project.id && editField === 'akonto') && "cursor-pointer hover:bg-blue-50"
+                              project.billingType === 'tilbud' && !(editingId === project.id && editField === 'akonto') && "cursor-pointer hover:bg-blue-50"
                             )}
-                            onClick={() => !(editingId === project.id && editField === 'akonto') && handleEdit(project.id, 'akonto', project.aKontoPercent)}
+                            onClick={() => project.billingType === 'tilbud' && !(editingId === project.id && editField === 'akonto') && handleEdit(project.id, 'akonto', project.aKontoPercent)}
                           >
-                            {(editingId === project.id && editField === 'akonto') ? (
+                            {project.billingType === 'timer_materiell' ? (
+                              <span className="text-gray-400">-</span>
+                            ) : (editingId === project.id && editField === 'akonto') ? (
                               <div className="flex items-center justify-end gap-2">
                                 <input
                                   ref={inputRef}
@@ -463,8 +480,43 @@ export default function FinanceView() {
                             )}
                           </td>
                           
-                          <td className="px-4 py-4 text-right font-medium text-green-600">
-                            {formatCurrency(getProjectFinance(project.id).fakturert)}
+                          {/* Fakturert column - editable for 'timer_materiell' type */}
+                          <td 
+                            className={clsx(
+                              "px-4 py-4 text-right font-medium text-green-600",
+                              project.billingType === 'timer_materiell' && !(editingId === project.id && editField === 'fakturert') && "cursor-pointer hover:bg-blue-50"
+                            )}
+                            onClick={() => project.billingType === 'timer_materiell' && !(editingId === project.id && editField === 'fakturert') && handleEdit(project.id, 'fakturert', project.fakturert)}
+                          >
+                            {(editingId === project.id && editField === 'fakturert') ? (
+                              <div className="flex items-center justify-end gap-2">
+                                <input
+                                  ref={inputRef}
+                                  type="number"
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  onKeyDown={(e) => handleKeyDown(e, project.id)}
+                                  onFocus={(e) => e.target.select()}
+                                  min={0}
+                                  className="w-28 px-2 py-1 border border-blue-500 rounded text-right focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                  placeholder="0"
+                                />
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleSave(project.id); }}
+                                  className="p-1 text-green-600 hover:bg-green-50 rounded"
+                                >
+                                  <Check size={16} />
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleCancel(); }}
+                                  className="p-1 text-gray-400 hover:bg-gray-100 rounded"
+                                >
+                                  <X size={16} />
+                                </button>
+                              </div>
+                            ) : (
+                              formatCurrency(getProjectFinance(project.id).fakturert)
+                            )}
                           </td>
                           <td className="px-4 py-4 text-right font-medium text-orange-600">
                             {formatCurrency(getProjectFinance(project.id).ordrereserve)}
@@ -638,6 +690,20 @@ export default function FinanceView() {
                       {leader.name}
                     </option>
                   ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Prosjekttype
+                </label>
+                <select
+                  value={newProject.billingType}
+                  onChange={(e) => setNewProject({ ...newProject, billingType: e.target.value as 'tilbud' | 'timer_materiell' })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="tilbud">Tilbud</option>
+                  <option value="timer_materiell">Timer og materiell</option>
                 </select>
               </div>
 

@@ -57,6 +57,8 @@ const dbProjectToProject = (db: DbProject): Project => ({
   color: db.color,
   amount: Number(db.amount),
   aKontoPercent: Number(db.a_konto_percent),
+  fakturert: Number(db.fakturert),
+  billingType: db.billing_type,
   status: db.status,
   projectType: db.project_type,
   isSystem: db.is_system,
@@ -170,6 +172,8 @@ export const useStore = create<AppState>()((set, get) => ({
         color: project.color,
         amount: project.amount,
         a_konto_percent: project.aKontoPercent,
+        fakturert: project.fakturert || 0,
+        billing_type: project.billingType || 'tilbud',
         status: project.status,
         project_type: project.projectType || 'regular',
         project_leader_id: project.projectLeaderId || null,
@@ -196,6 +200,8 @@ export const useStore = create<AppState>()((set, get) => ({
     if (updates.color !== undefined) dbUpdates.color = updates.color;
     if (updates.amount !== undefined) dbUpdates.amount = updates.amount;
     if (updates.aKontoPercent !== undefined) dbUpdates.a_konto_percent = updates.aKontoPercent;
+    if (updates.fakturert !== undefined) dbUpdates.fakturert = updates.fakturert;
+    if (updates.billingType !== undefined) dbUpdates.billing_type = updates.billingType;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
     if (updates.projectType !== undefined) dbUpdates.project_type = updates.projectType;
     if (updates.projectLeaderId !== undefined) dbUpdates.project_leader_id = updates.projectLeaderId || null;
@@ -303,10 +309,17 @@ export const useStore = create<AppState>()((set, get) => ({
     const project = get().projects.find(p => p.id === projectId);
     if (!project) return { fakturert: 0, ordrereserve: 0 };
     
-    const fakturert = (project.amount * project.aKontoPercent) / 100;
-    const ordrereserve = project.amount - fakturert;
-    
-    return { fakturert, ordrereserve };
+    if (project.billingType === 'timer_materiell') {
+      // Timer og materiell: fakturert is manually entered
+      const fakturert = project.fakturert;
+      const ordrereserve = Math.max(0, project.amount - fakturert);
+      return { fakturert, ordrereserve };
+    } else {
+      // Tilbud: fakturert is calculated from a konto percent
+      const fakturert = (project.amount * project.aKontoPercent) / 100;
+      const ordrereserve = project.amount - fakturert;
+      return { fakturert, ordrereserve };
+    }
   },
   
   getTotalOrdrereserve: () => {
@@ -314,8 +327,12 @@ export const useStore = create<AppState>()((set, get) => ({
     return projects
       .filter(p => p.status === 'active' && p.projectType === 'regular')
       .reduce((total, project) => {
-        const fakturert = (project.amount * project.aKontoPercent) / 100;
-        return total + (project.amount - fakturert);
+        if (project.billingType === 'timer_materiell') {
+          return total + Math.max(0, project.amount - project.fakturert);
+        } else {
+          const fakturert = (project.amount * project.aKontoPercent) / 100;
+          return total + (project.amount - fakturert);
+        }
       }, 0);
   },
 }));

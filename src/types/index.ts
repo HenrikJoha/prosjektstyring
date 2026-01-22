@@ -1,5 +1,6 @@
 export type WorkerRole = 'prosjektleder' | 'tømrer';
 export type ProjectType = 'regular' | 'sick_leave' | 'vacation';
+export type BillingType = 'tilbud' | 'timer_materiell';
 
 export interface Worker {
   id: string;
@@ -22,7 +23,9 @@ export interface Project {
   description: string;
   color: string;
   amount: number; // Total project amount in NOK
-  aKontoPercent: number; // Percentage invoiced (0-100)
+  aKontoPercent: number; // Percentage invoiced (0-100) - used for 'tilbud' billing type
+  fakturert: number; // Manually entered invoiced amount - used for 'timer_materiell' billing type
+  billingType: BillingType; // 'tilbud' = A konto %, 'timer_materiell' = manual fakturert
   status: 'active' | 'completed';
   projectType: ProjectType; // regular, sick_leave, or vacation
   isSystem: boolean; // System projects (sick leave, vacation) cannot be deleted
