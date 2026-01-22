@@ -192,9 +192,26 @@ export default function AssignmentBar({
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
+    
+    // For resize, start immediately (no delay needed)
+    const container = getContainer();
+    if (container) {
+      const startIdx = allDays.findIndex(d => d.dateString === assignment.startDate);
+      const endIdx = allDays.findIndex(d => d.dateString === assignment.endDate);
+      const duration = endIdx >= 0 && startIdx >= 0 ? endIdx - startIdx + 1 : Math.round(style.width / cellWidth);
+      
+      dragDataRef.current = {
+        startX: e.clientX,
+        barLeft: style.left,
+        duration,
+      };
+      
+      resizeSideRef.current = side;
+      setIsResizing(side);
+    }
+    
     mouseDownRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
-    resizeSideRef.current = side;
-  }, []);
+  }, [getContainer, allDays, assignment, style.left, style.width, cellWidth]);
 
   // ===== TOUCH HANDLERS =====
   
@@ -331,9 +348,26 @@ export default function AssignmentBar({
   const handleResizeTouchStart = useCallback((e: React.TouchEvent, side: 'left' | 'right') => {
     e.stopPropagation();
     const touch = e.touches[0];
+    
+    // For resize, start immediately (no delay needed)
+    const container = getContainer();
+    if (container) {
+      const startIdx = allDays.findIndex(d => d.dateString === assignment.startDate);
+      const endIdx = allDays.findIndex(d => d.dateString === assignment.endDate);
+      const duration = endIdx >= 0 && startIdx >= 0 ? endIdx - startIdx + 1 : Math.round(style.width / cellWidth);
+      
+      dragDataRef.current = {
+        startX: touch.clientX,
+        barLeft: style.left,
+        duration,
+      };
+      
+      resizeSideRef.current = side;
+      setIsResizing(side);
+    }
+    
     mouseDownRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
-    resizeSideRef.current = side;
-  }, []);
+  }, [getContainer, allDays, assignment, style.left, style.width, cellWidth]);
 
   // ===== RENDERING =====
   
@@ -359,7 +393,7 @@ export default function AssignmentBar({
       <div
         ref={barRef}
         className={clsx(
-          'project-bar absolute rounded-md shadow-sm cursor-pointer overflow-hidden',
+          'project-bar absolute rounded-md shadow-sm cursor-pointer overflow-visible',
           (isDragging || isResizing) && 'opacity-80 shadow-lg z-30 cursor-move'
         )}
         style={{
@@ -370,11 +404,7 @@ export default function AssignmentBar({
           backgroundColor: project.color,
           color: textColor,
         }}
-        onMouseDown={handleMouseDown}
         onDoubleClick={handleDoubleClick}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
         title="Dobbeltklikk for å redigere"
       >
         {/* Resize handle left */}
@@ -382,10 +412,16 @@ export default function AssignmentBar({
           className="resize-handle resize-handle-left"
           onMouseDown={(e) => handleResizeMouseDown(e, 'left')}
           onTouchStart={(e) => handleResizeTouchStart(e, 'left')}
+          style={{ pointerEvents: 'auto' }}
         />
 
-        {/* Content */}
-        <div className="flex items-center h-full px-3 gap-1 pointer-events-none">
+        {/* Content - make more of the bar draggable */}
+        <div 
+          className="flex items-center h-full px-3 gap-1"
+          style={{ pointerEvents: 'auto', cursor: isDragging ? 'move' : 'pointer' }}
+          onMouseDown={handleMouseDown}
+          onTouchStart={handleTouchStart}
+        >
           <GripVertical size={14} className="flex-shrink-0 opacity-50 hidden sm:block" />
           <span className="text-sm font-medium truncate">{project.name}</span>
         </div>
@@ -395,6 +431,7 @@ export default function AssignmentBar({
           className="resize-handle resize-handle-right"
           onMouseDown={(e) => handleResizeMouseDown(e, 'right')}
           onTouchStart={(e) => handleResizeTouchStart(e, 'right')}
+          style={{ pointerEvents: 'auto' }}
         />
       </div>
 

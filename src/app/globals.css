@@ -52,27 +52,31 @@ body {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 8px;
+  width: 16px;
   cursor: ew-resize;
-  opacity: 0;
+  opacity: 0.3;
   transition: opacity 0.2s, background-color 0.2s;
   background-color: rgba(0, 0, 0, 0.2);
+  z-index: 10;
 }
 
 .project-bar:hover .resize-handle {
-  opacity: 1;
+  opacity: 0.6;
 }
 
 .resize-handle:hover {
+  opacity: 0.8;
   background-color: rgba(0, 0, 0, 0.4);
 }
 
 .resize-handle-left {
-  left: 0;
+  left: -4px;
+  border-radius: 4px 0 0 4px;
 }
 
 .resize-handle-right {
-  right: 0;
+  right: -4px;
+  border-radius: 0 4px 4px 0;
 }
 
 /* Larger touch targets on mobile/touch devices */
