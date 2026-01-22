@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { useStore } from '@/store/useStore';
 import { ProjectAssignment, Project } from '@/types';
 import { DayData } from '@/utils/dates';
-import { Trash2, GripVertical, Edit2 } from 'lucide-react';
+import { GripVertical } from 'lucide-react';
 import clsx from 'clsx';
 import EditProjectModal from './EditProjectModal';
 
@@ -30,18 +30,12 @@ export default function AssignmentBar({
   lane,
   totalLanes,
 }: AssignmentBarProps) {
-  const { updateAssignment, deleteAssignment, deleteProject, assignments } = useStore();
+  const { updateAssignment } = useStore();
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null);
-  const [showMenu, setShowMenu] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
 
-  // Check if this is the last assignment for this project
-  const projectAssignments = assignments.filter(a => a.projectId === project.id);
-  const isLastAssignment = projectAssignments.length === 1;
-  
   // Mouse/touch tracking refs
   const mouseDownRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const dragDataRef = useRef<{
@@ -164,31 +158,12 @@ export default function AssignmentBar({
     };
   }, [isDragging, isResizing, getContainer, getDateFromPosition, allDays, assignment, updateAssignment, style.left, style.width, cellWidth]);
 
-  // Handle click - only fires if no drag happened
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    // If we're dragging, don't show menu
-    if (isDragging || isResizing) return;
-    setShowMenu(prev => !prev);
-  }, [isDragging, isResizing]);
-
-  // Handle right-click
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setShowMenu(true);
-  }, []);
-
-  // Handle double-click
+  // Handle double-click - open edit modal for ALL projects
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (project.isSystem) {
-      setShowMenu(true);
-    } else {
-      setShowEditModal(true);
-    }
-  }, [project.isSystem]);
+    setShowEditModal(true);
+  }, []);
 
   // ===== RESIZE HANDLERS =====
   
@@ -207,9 +182,9 @@ export default function AssignmentBar({
     const touch = e.touches[0];
     mouseDownRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
     
-    // Start long press timer
+    // Start long press timer - opens edit modal
     longPressTimerRef.current = setTimeout(() => {
-      setShowMenu(true);
+      setShowEditModal(true);
       if (navigator.vibrate) navigator.vibrate(50);
       mouseDownRef.current = null;
     }, LONG_PRESS_DURATION);
@@ -335,54 +310,6 @@ export default function AssignmentBar({
     resizeSideRef.current = side;
   }, []);
 
-  // ===== MENU HANDLERS =====
-  
-  // Close menu when clicking outside - use mousedown to avoid same-click issue
-  useEffect(() => {
-    if (!showMenu) return;
-    
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      // Don't close if clicking inside the menu or on the bar itself
-      if (!target.closest('.assignment-menu') && !target.closest('.project-bar')) {
-        setShowMenu(false);
-      }
-    };
-    
-    // Use mousedown instead of click, and add listener on next frame
-    // to avoid the opening click from triggering it
-    const frameId = requestAnimationFrame(() => {
-      window.addEventListener('mousedown', handleClickOutside);
-    });
-    
-    return () => {
-      cancelAnimationFrame(frameId);
-      window.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showMenu]);
-
-  const handleRemoveAssignment = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (isLastAssignment && !project.isSystem) {
-      setShowMenu(false);
-      setShowDeleteConfirm(true);
-    } else {
-      deleteAssignment(assignment.id);
-      setShowMenu(false);
-    }
-  };
-
-  const handleConfirmDeleteProject = () => {
-    deleteAssignment(assignment.id);
-    deleteProject(project.id);
-    setShowDeleteConfirm(false);
-  };
-
-  const handleJustRemoveAssignment = () => {
-    deleteAssignment(assignment.id);
-    setShowDeleteConfirm(false);
-  };
-
   // ===== RENDERING =====
   
   const getContrastColor = (hexColor: string) => {
@@ -403,120 +330,58 @@ export default function AssignmentBar({
   const barTop = padding + (lane * (availableHeight / totalLanes)) + (totalLanes > 1 ? 1 : 4);
 
   return (
-    <div
-      ref={barRef}
-      className={clsx(
-        'project-bar absolute rounded-md shadow-sm cursor-pointer overflow-hidden',
-        (isDragging || isResizing) && 'opacity-80 shadow-lg z-30 cursor-move'
-      )}
-      style={{
-        left: style.left,
-        width: style.width,
-        top: barTop,
-        height: barHeight,
-        backgroundColor: project.color,
-        color: textColor,
-      }}
-      onMouseDown={handleMouseDown}
-      onClick={handleClick}
-      onContextMenu={handleContextMenu}
-      onDoubleClick={handleDoubleClick}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-    >
-      {/* Resize handle left */}
+    <>
       <div
-        className="resize-handle resize-handle-left"
-        onMouseDown={(e) => handleResizeMouseDown(e, 'left')}
-        onTouchStart={(e) => handleResizeTouchStart(e, 'left')}
-      />
+        ref={barRef}
+        className={clsx(
+          'project-bar absolute rounded-md shadow-sm cursor-pointer overflow-hidden',
+          (isDragging || isResizing) && 'opacity-80 shadow-lg z-30 cursor-move'
+        )}
+        style={{
+          left: style.left,
+          width: style.width,
+          top: barTop,
+          height: barHeight,
+          backgroundColor: project.color,
+          color: textColor,
+        }}
+        onMouseDown={handleMouseDown}
+        onDoubleClick={handleDoubleClick}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        title="Dobbeltklikk for å redigere"
+      >
+        {/* Resize handle left */}
+        <div
+          className="resize-handle resize-handle-left"
+          onMouseDown={(e) => handleResizeMouseDown(e, 'left')}
+          onTouchStart={(e) => handleResizeTouchStart(e, 'left')}
+        />
 
-      {/* Content */}
-      <div className="flex items-center h-full px-3 gap-1 pointer-events-none">
-        <GripVertical size={14} className="flex-shrink-0 opacity-50 hidden sm:block" />
-        <span className="text-sm font-medium truncate">{project.name}</span>
+        {/* Content */}
+        <div className="flex items-center h-full px-3 gap-1 pointer-events-none">
+          <GripVertical size={14} className="flex-shrink-0 opacity-50 hidden sm:block" />
+          <span className="text-sm font-medium truncate">{project.name}</span>
+        </div>
+
+        {/* Resize handle right */}
+        <div
+          className="resize-handle resize-handle-right"
+          onMouseDown={(e) => handleResizeMouseDown(e, 'right')}
+          onTouchStart={(e) => handleResizeTouchStart(e, 'right')}
+        />
       </div>
 
-      {/* Resize handle right */}
-      <div
-        className="resize-handle resize-handle-right"
-        onMouseDown={(e) => handleResizeMouseDown(e, 'right')}
-        onTouchStart={(e) => handleResizeTouchStart(e, 'right')}
-      />
-
-      {/* Context menu */}
-      {showMenu && (
-        <div
-          className="assignment-menu absolute top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 min-w-[180px]"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {!project.isSystem && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowMenu(false);
-                setShowEditModal(true);
-              }}
-              className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 w-full text-left"
-            >
-              <Edit2 size={16} />
-              Rediger prosjekt
-            </button>
-          )}
-          <button
-            onClick={handleRemoveAssignment}
-            className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 w-full text-left"
-          >
-            <Trash2 size={16} />
-            Fjern fra kalender
-          </button>
-        </div>
-      )}
-
-      {/* Delete confirmation dialog */}
-      {showDeleteConfirm && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              Slett prosjekt?
-            </h3>
-            <p className="text-gray-600 mb-6">
-              Dette er den siste tildelingen for &quot;{project.name}&quot;. Vil du også slette hele prosjektet?
-            </p>
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={handleConfirmDeleteProject}
-                className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-              >
-                Ja, slett prosjektet
-              </button>
-              <button
-                onClick={handleJustRemoveAssignment}
-                className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-              >
-                Nei, bare fjern fra kalender
-              </button>
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="w-full px-4 py-2 text-gray-500 hover:text-gray-700 transition-colors"
-              >
-                Avbryt
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* Edit Project Modal */}
+      {/* Edit Project Modal - rendered via portal */}
       {showEditModal && createPortal(
         <EditProjectModal
           project={project}
+          assignment={assignment}
           onClose={() => setShowEditModal(false)}
         />,
         document.body
       )}
-    </div>
+    </>
   );
 }
