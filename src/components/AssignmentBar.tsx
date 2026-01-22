@@ -34,6 +34,7 @@ export default function AssignmentBar({
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [dragActivated, setDragActivated] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
 
   // Mouse/touch tracking refs
@@ -164,6 +165,7 @@ export default function AssignmentBar({
       resizeSideRef.current = null;
       setIsDragging(false);
       setIsResizing(null);
+      setDragActivated(false);
       canDragRef.current = false;
       if (dragActivationTimerRef.current) {
         clearTimeout(dragActivationTimerRef.current);
@@ -216,24 +218,32 @@ export default function AssignmentBar({
   // ===== TOUCH HANDLERS =====
   
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    // Don't prevent default here - allow scrolling until drag starts
     e.stopPropagation();
     const touch = e.touches[0];
     mouseDownRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
     canDragRef.current = false;
+    setDragActivated(false);
     
-    // Start drag activation timer (no long-press for edit modal anymore)
+    // Start drag activation timer - after 500ms, dragging is allowed
     dragActivationTimerRef.current = setTimeout(() => {
       canDragRef.current = true;
+      setDragActivated(true);
     }, DRAG_ACTIVATION_DELAY);
   }, []);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (!mouseDownRef.current) return;
     
-    // Only allow drag if activation delay has passed
+    // Only allow drag if activation delay has passed (500ms)
     if (!canDragRef.current) {
+      // Still allow scrolling if drag hasn't activated yet
       return;
     }
+    
+    // Once drag is activated, prevent scrolling
+    e.preventDefault();
+    e.stopPropagation();
     
     const touch = e.touches[0];
     const dx = Math.abs(touch.clientX - mouseDownRef.current.x);
@@ -268,13 +278,15 @@ export default function AssignmentBar({
     }
   }, [isDragging, isResizing, getContainer, allDays, assignment, style, cellWidth]);
 
-  // Touch move for active drag/resize
+  // Touch move for active drag/resize - this handles the actual dragging after it starts
   useEffect(() => {
     if (!isDragging && !isResizing) return;
     
     const handleTouchMove = (e: TouchEvent) => {
       if (!dragDataRef.current) return;
+      // Prevent scrolling during active drag/resize
       e.preventDefault();
+      e.stopPropagation();
       
       const touch = e.touches[0];
       const container = getContainer();
@@ -320,6 +332,7 @@ export default function AssignmentBar({
       resizeSideRef.current = null;
       setIsDragging(false);
       setIsResizing(null);
+      setDragActivated(false);
       canDragRef.current = false;
       if (dragActivationTimerRef.current) {
         clearTimeout(dragActivationTimerRef.current);
@@ -327,8 +340,9 @@ export default function AssignmentBar({
       }
     };
 
+    // Use passive: false to allow preventDefault
     window.addEventListener('touchmove', handleTouchMove, { passive: false });
-    window.addEventListener('touchend', handleTouchEnd);
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
     return () => {
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleTouchEnd);
@@ -337,6 +351,7 @@ export default function AssignmentBar({
 
   const handleTouchEnd = useCallback(() => {
     canDragRef.current = false;
+    setDragActivated(false);
     if (dragActivationTimerRef.current) {
       clearTimeout(dragActivationTimerRef.current);
       dragActivationTimerRef.current = null;
@@ -394,7 +409,8 @@ export default function AssignmentBar({
         ref={barRef}
         className={clsx(
           'project-bar absolute rounded-md shadow-sm cursor-pointer overflow-visible',
-          (isDragging || isResizing) && 'opacity-80 shadow-lg z-30 cursor-move'
+          (isDragging || isResizing) && 'opacity-80 shadow-lg z-30 cursor-move',
+          dragActivated && !isDragging && !isResizing && 'long-press-active'
         )}
         style={{
           left: style.left,
@@ -403,6 +419,7 @@ export default function AssignmentBar({
           height: barHeight,
           backgroundColor: project.color,
           color: textColor,
+          touchAction: (isDragging || isResizing || dragActivated) ? 'none' : 'auto',
         }}
         onDoubleClick={handleDoubleClick}
         title="Dobbeltklikk for å redigere"
