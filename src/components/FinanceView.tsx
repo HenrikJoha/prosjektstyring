@@ -7,6 +7,7 @@ import { Project, Worker } from '@/types';
 import { formatCurrency, parseISO, eachDayOfInterval } from '@/utils/dates';
 import { Check, X, DollarSign, TrendingUp, Trash2, Plus, User, ChevronDown } from 'lucide-react';
 import clsx from 'clsx';
+import EditProjectModal from './EditProjectModal';
 
 // Dropdown component that renders via portal and positions smartly
 interface LeaderDropdownProps {
@@ -114,6 +115,9 @@ export default function FinanceView() {
 
   // Assign leader dropdown state
   const [assigningLeader, setAssigningLeader] = useState<{ projectId: string; buttonRef: HTMLButtonElement | null } | null>(null);
+  
+  // Edit project modal state
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
 
   // Get all project leaders
   const projectLeaders = workers.filter(w => w.role === 'prosjektleder');
@@ -389,7 +393,12 @@ export default function FinanceView() {
                                 style={{ backgroundColor: project.color }}
                               />
                               <div>
-                                <div className="font-medium text-gray-900">{project.name}</div>
+                                <button
+                                  onClick={() => setEditingProject(project)}
+                                  className="font-medium text-gray-900 hover:text-blue-600 hover:underline text-left"
+                                >
+                                  {project.name}
+                                </button>
                                 {project.description && (
                                   <div className="text-sm text-gray-500 truncate max-w-xs">
                                     {project.description}
@@ -613,7 +622,12 @@ export default function FinanceView() {
                               className="w-4 h-4 rounded-full flex-shrink-0"
                               style={{ backgroundColor: project.color }}
                             />
-                            <span className="font-medium text-gray-900">{project.name}</span>
+                            <button
+                              onClick={() => setEditingProject(project)}
+                              className="font-medium text-gray-900 hover:text-blue-600 hover:underline text-left"
+                            >
+                              {project.name}
+                            </button>
                           </div>
                         </td>
                         <td className="px-4 py-4 text-right font-medium text-gray-900">
@@ -789,6 +803,14 @@ export default function FinanceView() {
           leaders={projectLeaders}
           onSelect={(leaderId) => handleAssignLeader(assigningLeader.projectId, leaderId)}
           onClose={() => setAssigningLeader(null)}
+        />
+      )}
+
+      {/* Edit Project Modal */}
+      {editingProject && (
+        <EditProjectModal
+          project={editingProject}
+          onClose={() => setEditingProject(null)}
         />
       )}
     </div>

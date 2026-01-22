@@ -38,6 +38,7 @@ export default function EditProjectModal({ project, assignment, onClose }: EditP
     description: project.description,
     color: project.color,
     amount: project.amount,
+    billingType: project.billingType,
   });
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteType, setDeleteType] = useState<'assignment' | 'project' | null>(null);
@@ -53,6 +54,7 @@ export default function EditProjectModal({ project, assignment, onClose }: EditP
         description: formData.description.trim(),
         color: formData.color,
         amount: formData.amount,
+        billingType: formData.billingType,
       });
     }
     onClose();
@@ -135,6 +137,20 @@ export default function EditProjectModal({ project, assignment, onClose }: EditP
                   placeholder="F.eks. Klokkerjordet 16"
                   autoFocus
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Prosjekttype
+                </label>
+                <select
+                  value={formData.billingType}
+                  onChange={(e) => setFormData({ ...formData, billingType: e.target.value as 'tilbud' | 'timer_materiell' })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="tilbud">Tilbud</option>
+                  <option value="timer_materiell">Timer og materiell</option>
+                </select>
               </div>
 
               <div>

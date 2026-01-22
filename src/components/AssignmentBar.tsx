@@ -45,11 +45,12 @@ export default function AssignmentBar({
   } | null>(null);
   const resizeSideRef = useRef<'left' | 'right' | null>(null);
   
-  // Touch long press
-  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Drag activation delay (prevents accidental drags)
+  const dragActivationTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const canDragRef = useRef(false);
   
   const DRAG_THRESHOLD = 5;
-  const LONG_PRESS_DURATION = 500;
+  const DRAG_ACTIVATION_DELAY = 500; // 500ms hold before dragging can start
 
   // Get date from position
   const getDateFromPosition = useCallback((xPosition: number) => {
@@ -66,6 +67,12 @@ export default function AssignmentBar({
     if (e.button !== 0) return; // Only left click
     e.stopPropagation();
     mouseDownRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
+    canDragRef.current = false;
+    
+    // Start drag activation timer
+    dragActivationTimerRef.current = setTimeout(() => {
+      canDragRef.current = true;
+    }, DRAG_ACTIVATION_DELAY);
   }, []);
 
   // Global mouse move - check for drag start
@@ -73,6 +80,11 @@ export default function AssignmentBar({
     const handleMouseMove = (e: MouseEvent) => {
       // Check if we should start dragging
       if (mouseDownRef.current && !isDragging && !isResizing) {
+        // Only allow drag if activation delay has passed
+        if (!canDragRef.current) {
+          return;
+        }
+        
         const dx = Math.abs(e.clientX - mouseDownRef.current.x);
         const dy = Math.abs(e.clientY - mouseDownRef.current.y);
         
@@ -97,6 +109,10 @@ export default function AssignmentBar({
             }
           }
           mouseDownRef.current = null;
+          if (dragActivationTimerRef.current) {
+            clearTimeout(dragActivationTimerRef.current);
+            dragActivationTimerRef.current = null;
+          }
         }
         return;
       }
@@ -148,6 +164,11 @@ export default function AssignmentBar({
       resizeSideRef.current = null;
       setIsDragging(false);
       setIsResizing(null);
+      canDragRef.current = false;
+      if (dragActivationTimerRef.current) {
+        clearTimeout(dragActivationTimerRef.current);
+        dragActivationTimerRef.current = null;
+      }
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -181,27 +202,25 @@ export default function AssignmentBar({
     e.stopPropagation();
     const touch = e.touches[0];
     mouseDownRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+    canDragRef.current = false;
     
-    // Start long press timer - opens edit modal
-    longPressTimerRef.current = setTimeout(() => {
-      setShowEditModal(true);
-      if (navigator.vibrate) navigator.vibrate(50);
-      mouseDownRef.current = null;
-    }, LONG_PRESS_DURATION);
+    // Start drag activation timer (no long-press for edit modal anymore)
+    dragActivationTimerRef.current = setTimeout(() => {
+      canDragRef.current = true;
+    }, DRAG_ACTIVATION_DELAY);
   }, []);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (!mouseDownRef.current) return;
     
+    // Only allow drag if activation delay has passed
+    if (!canDragRef.current) {
+      return;
+    }
+    
     const touch = e.touches[0];
     const dx = Math.abs(touch.clientX - mouseDownRef.current.x);
     const dy = Math.abs(touch.clientY - mouseDownRef.current.y);
-    
-    // Cancel long press if moved
-    if (longPressTimerRef.current && (dx > 10 || dy > 10)) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
     
     // Start drag if threshold met
     if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
@@ -223,6 +242,10 @@ export default function AssignmentBar({
           } else {
             setIsDragging(true);
           }
+        }
+        if (dragActivationTimerRef.current) {
+          clearTimeout(dragActivationTimerRef.current);
+          dragActivationTimerRef.current = null;
         }
       }
     }
@@ -280,9 +303,10 @@ export default function AssignmentBar({
       resizeSideRef.current = null;
       setIsDragging(false);
       setIsResizing(null);
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
+      canDragRef.current = false;
+      if (dragActivationTimerRef.current) {
+        clearTimeout(dragActivationTimerRef.current);
+        dragActivationTimerRef.current = null;
       }
     };
 
@@ -295,9 +319,10 @@ export default function AssignmentBar({
   }, [isDragging, isResizing, getContainer, getDateFromPosition, allDays, assignment, updateAssignment]);
 
   const handleTouchEnd = useCallback(() => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
+    canDragRef.current = false;
+    if (dragActivationTimerRef.current) {
+      clearTimeout(dragActivationTimerRef.current);
+      dragActivationTimerRef.current = null;
     }
     mouseDownRef.current = null;
     resizeSideRef.current = null;
