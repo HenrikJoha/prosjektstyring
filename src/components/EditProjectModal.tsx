@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import { Project, ProjectAssignment } from '@/types';
 import { X, Check, Trash2, Calendar } from 'lucide-react';
 import clsx from 'clsx';
@@ -32,7 +33,14 @@ interface EditProjectModalProps {
 }
 
 export default function EditProjectModal({ project, assignment, onClose }: EditProjectModalProps) {
-  const { updateProject, deleteProject, deleteAssignment, assignments } = useStore();
+  const { updateProject, deleteProject, deleteAssignment, assignments, isAdmin, currentUserWorkerId } = useStore();
+  const user = useAuthStore((state) => state.user);
+  
+  // Check if user can delete the entire project (admin or project owner)
+  const canDeleteProject = isAdmin || (user?.role === 'admin') || project.projectLeaderId === currentUserWorkerId;
+  
+  // Check if user can edit the project (admin or project owner)
+  const canEditProject = !project.isSystem && (isAdmin || (user?.role === 'admin') || project.projectLeaderId === currentUserWorkerId);
   const [formData, setFormData] = useState({
     name: project.name,
     description: project.description,
@@ -48,7 +56,7 @@ export default function EditProjectModal({ project, assignment, onClose }: EditP
   const isLastAssignment = assignment && projectAssignments.length === 1;
 
   const handleSave = () => {
-    if (formData.name.trim() && !project.isSystem) {
+    if (formData.name.trim() && canEditProject) {
       updateProject(project.id, {
         name: formData.name.trim(),
         description: formData.description.trim(),
@@ -120,6 +128,28 @@ export default function EditProjectModal({ project, assignment, onClose }: EditP
               {assignment && (
                 <p className="text-sm text-gray-500 mt-2">
                   Du kan fjerne denne tildelingen fra kalenderen.
+                </p>
+              )}
+            </div>
+          ) : !canEditProject ? (
+            // User can see but not edit this project (it belongs to another project leader)
+            <div className="text-center py-4">
+              <div 
+                className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center"
+                style={{ backgroundColor: project.color }}
+              >
+                <Calendar size={32} className="text-white" />
+              </div>
+              <h3 className="font-semibold text-gray-900 mb-2">{project.name}</h3>
+              {project.description && (
+                <p className="text-sm text-gray-600 mb-2">{project.description}</p>
+              )}
+              <p className="text-sm text-gray-500">
+                Dette prosjektet tilhører en annen prosjektleder.
+              </p>
+              {assignment && (
+                <p className="text-sm text-gray-500 mt-2">
+                  Du kan fjerne din tildeling fra kalenderen.
                 </p>
               )}
             </div>
@@ -248,12 +278,12 @@ export default function EditProjectModal({ project, assignment, onClose }: EditP
               {assignment && (
                 <button
                   onClick={() => {
-                    if (isLastAssignment && !project.isSystem) {
-                      // Last assignment for a regular project - ask about deleting project
+                    if (isLastAssignment && !project.isSystem && canDeleteProject) {
+                      // Last assignment for a regular project - ask about deleting project (only if user has permission)
                       setDeleteType('project');
                       setShowDeleteConfirm(true);
                     } else {
-                      // Just remove assignment
+                      // Just remove assignment (user doesn't own project, or it's a system project, or there are more assignments)
                       setDeleteType('assignment');
                       setShowDeleteConfirm(true);
                     }
@@ -265,8 +295,8 @@ export default function EditProjectModal({ project, assignment, onClose }: EditP
                 </button>
               )}
               
-              {/* Delete entire project - only for non-system projects with multiple assignments */}
-              {!project.isSystem && projectAssignments.length > 1 && (
+              {/* Delete entire project - only for non-system projects with multiple assignments AND user has permission */}
+              {!project.isSystem && projectAssignments.length > 1 && canDeleteProject && (
                 <button
                   onClick={() => {
                     setDeleteType('project');
@@ -282,7 +312,7 @@ export default function EditProjectModal({ project, assignment, onClose }: EditP
           )}
 
           {/* Save/Cancel buttons - only for editable projects */}
-          {!project.isSystem && !showDeleteConfirm && (
+          {canEditProject && !showDeleteConfirm && (
             <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
               <button
                 onClick={onClose}
@@ -306,8 +336,8 @@ export default function EditProjectModal({ project, assignment, onClose }: EditP
             </div>
           )}
 
-          {/* Close button for system projects */}
-          {project.isSystem && !showDeleteConfirm && (
+          {/* Close button for system projects or read-only projects */}
+          {(project.isSystem || !canEditProject) && !showDeleteConfirm && (
             <div className="flex justify-end pt-2 border-t border-gray-200">
               <button
                 onClick={onClose}
