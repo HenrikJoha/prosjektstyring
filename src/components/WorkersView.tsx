@@ -389,7 +389,6 @@ export default function WorkersView() {
               </div>
             </div>
           )}
-        </div>
 
         {/* Workers List */}
         {workers.length === 0 ? (
