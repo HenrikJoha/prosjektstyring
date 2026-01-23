@@ -117,20 +117,23 @@ export const useStore = create<AppState>()((set, get) => ({
           w.projectLeaderId === userWorkerId // Workers under this project leader
         );
         
-        // Filter projects: only show projects assigned to this project leader
-        // Also include system projects (sick leave, vacation) for everyone
-        projects = projects.filter(p => 
-          p.projectLeaderId === userWorkerId || // Projects assigned to this leader
-          p.isSystem // System projects (sick leave, vacation)
-        );
-        
-        // Get all project IDs the leader can see
-        const visibleProjectIds = new Set(projects.map(p => p.id));
         const visibleWorkerIds = new Set(workers.map(w => w.id));
         
-        // Filter assignments: only show assignments for visible projects and workers
-        assignments = assignments.filter(a => 
-          visibleProjectIds.has(a.projectId) && visibleWorkerIds.has(a.workerId)
+        // Filter assignments: only show assignments for the project leader's team
+        assignments = assignments.filter(a => visibleWorkerIds.has(a.workerId));
+        
+        // Get all project IDs from the team's assignments
+        // This allows seeing projects that are assigned to their calendar,
+        // even if the project belongs to another project leader
+        const projectIdsFromAssignments = new Set(assignments.map(a => a.projectId));
+        
+        // Filter projects: show projects that appear in the team's assignments
+        // Also include system projects (sick leave, vacation) for everyone
+        // Also include projects owned by this leader (even if no assignments yet)
+        projects = projects.filter(p => 
+          projectIdsFromAssignments.has(p.id) || // Projects visible in calendar
+          p.projectLeaderId === userWorkerId || // Projects owned by this leader
+          p.isSystem // System projects (sick leave, vacation)
         );
       }
     }
