@@ -1,17 +1,83 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
+import { useAuthStore, AppUser } from '@/store/useAuthStore';
 import { Worker, WorkerRole } from '@/types';
-import { Plus, Trash2, Edit2, Check, X, Users } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, Users, UserPlus, Key, Link2, AlertCircle } from 'lucide-react';
 import clsx from 'clsx';
 
 export default function WorkersView() {
   const { workers, addWorker, updateWorker, deleteWorker } = useStore();
+  const { createUser, deleteUser, getUsers, linkUserToWorker, error: authError } = useAuthStore();
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newWorker, setNewWorker] = useState({ name: '', role: 'tømrer' as WorkerRole, projectLeaderId: '' });
   const [editWorker, setEditWorker] = useState({ name: '', role: 'tømrer' as WorkerRole, projectLeaderId: '' });
+  
+  // User management state
+  const [showUserManagement, setShowUserManagement] = useState(false);
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [isAddingUser, setIsAddingUser] = useState(false);
+  const [newUser, setNewUser] = useState({ username: '', password: '', workerId: '' });
+  const [linkingUserId, setLinkingUserId] = useState<string | null>(null);
+  const [userError, setUserError] = useState<string | null>(null);
+
+  // Load users when user management is opened
+  useEffect(() => {
+    if (showUserManagement) {
+      loadUsers();
+    }
+  }, [showUserManagement]);
+
+  const loadUsers = async () => {
+    const fetchedUsers = await getUsers();
+    setUsers(fetchedUsers);
+  };
+
+  const handleCreateUser = async () => {
+    setUserError(null);
+    if (!newUser.username.trim() || !newUser.password.trim()) {
+      setUserError('Brukernavn og passord er påkrevd');
+      return;
+    }
+    
+    // Determine role based on selected worker (if any)
+    const selectedWorker = workers.find(w => w.id === newUser.workerId);
+    const role = selectedWorker?.role === 'prosjektleder' ? 'prosjektleder' : 'prosjektleder';
+    
+    const success = await createUser(
+      newUser.username.trim(),
+      newUser.password,
+      role,
+      newUser.workerId || undefined
+    );
+    
+    if (success) {
+      setNewUser({ username: '', password: '', workerId: '' });
+      setIsAddingUser(false);
+      loadUsers();
+    } else {
+      setUserError(authError || 'Kunne ikke opprette bruker');
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (confirm('Er du sikker på at du vil slette denne brukeren?')) {
+      const success = await deleteUser(userId);
+      if (success) {
+        loadUsers();
+      }
+    }
+  };
+
+  const handleLinkUser = async (userId: string, workerId: string) => {
+    const success = await linkUserToWorker(userId, workerId);
+    if (success) {
+      setLinkingUserId(null);
+      loadUsers();
+    }
+  };
 
   const projectLeaders = workers.filter(w => w.role === 'prosjektleder');
   const carpenters = workers.filter(w => w.role === 'tømrer');
@@ -64,8 +130,8 @@ export default function WorkersView() {
   return (
     <div className="p-4 md:p-6 overflow-auto h-full pb-24 md:pb-6">
       <div className="max-w-4xl mx-auto">
-        {/* Add Worker Button */}
-        <div className="mb-6">
+        {/* Action Buttons */}
+        <div className="mb-6 flex flex-wrap gap-3">
           {!isAdding ? (
             <button
               onClick={() => setIsAdding(true)}
@@ -74,7 +140,191 @@ export default function WorkersView() {
               <Plus size={20} />
               Legg til ansatt
             </button>
-          ) : (
+          ) : null}
+          
+          <button
+            onClick={() => setShowUserManagement(!showUserManagement)}
+            className={clsx(
+              "flex items-center gap-2 px-4 py-2 rounded-lg transition-colors",
+              showUserManagement 
+                ? "bg-purple-100 text-purple-700 hover:bg-purple-200"
+                : "bg-purple-600 text-white hover:bg-purple-700"
+            )}
+          >
+            <Key size={20} />
+            {showUserManagement ? 'Skjul brukere' : 'Administrer brukere'}
+          </button>
+        </div>
+
+        {/* User Management Section */}
+        {showUserManagement && (
+          <div className="mb-8 bg-purple-50 rounded-xl border border-purple-200 p-4">
+            <h2 className="text-lg font-semibold text-purple-900 mb-4 flex items-center gap-2">
+              <Key size={20} />
+              Brukeradministrasjon
+            </h2>
+
+            {userError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
+                <AlertCircle size={18} />
+                <span className="text-sm">{userError}</span>
+              </div>
+            )}
+
+            {/* Add User Form */}
+            {!isAddingUser ? (
+              <button
+                onClick={() => setIsAddingUser(true)}
+                className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm mb-4"
+              >
+                <UserPlus size={16} />
+                Opprett ny bruker
+              </button>
+            ) : (
+              <div className="bg-white rounded-lg border border-purple-200 p-4 mb-4">
+                <h3 className="font-medium mb-3 text-purple-900">Ny bruker</h3>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Brukernavn</label>
+                    <input
+                      type="text"
+                      value={newUser.username}
+                      onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                      placeholder="brukernavn"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Passord</label>
+                    <input
+                      type="text"
+                      value={newUser.password}
+                      onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                      placeholder="passord"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Koble til prosjektleder</label>
+                    <select
+                      value={newUser.workerId}
+                      onChange={(e) => setNewUser({ ...newUser, workerId: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    >
+                      <option value="">Velg prosjektleder...</option>
+                      {projectLeaders.map((leader) => (
+                        <option key={leader.id} value={leader.id}>
+                          {leader.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <button
+                    onClick={handleCreateUser}
+                    className="flex items-center gap-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
+                  >
+                    <Check size={14} />
+                    Opprett
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsAddingUser(false);
+                      setNewUser({ username: '', password: '', workerId: '' });
+                      setUserError(null);
+                    }}
+                    className="flex items-center gap-1 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+                  >
+                    <X size={14} />
+                    Avbryt
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Users List */}
+            <div className="space-y-2">
+              {users.length === 0 ? (
+                <p className="text-sm text-purple-600">Ingen brukere opprettet ennå</p>
+              ) : (
+                users.map((user) => {
+                  const linkedWorker = workers.find(w => w.id === user.workerId);
+                  return (
+                    <div key={user.id} className="bg-white rounded-lg border border-purple-100 p-3 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium"
+                          style={{ backgroundColor: user.profileColor }}
+                        >
+                          {user.username.substring(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="font-medium text-gray-900">{user.username}</div>
+                          <div className="text-xs text-gray-500">
+                            {user.role === 'admin' ? 'Administrator' : 'Prosjektleder'}
+                            {linkedWorker && ` - ${linkedWorker.name}`}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {linkingUserId === user.id ? (
+                          <div className="flex items-center gap-2">
+                            <select
+                              className="px-2 py-1 border border-gray-300 rounded text-sm"
+                              defaultValue=""
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  handleLinkUser(user.id, e.target.value);
+                                }
+                              }}
+                            >
+                              <option value="">Velg prosjektleder...</option>
+                              {projectLeaders.map((leader) => (
+                                <option key={leader.id} value={leader.id}>
+                                  {leader.name}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              onClick={() => setLinkingUserId(null)}
+                              className="p-1 text-gray-400 hover:text-gray-600"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => setLinkingUserId(user.id)}
+                              className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                              title="Koble til prosjektleder"
+                            >
+                              <Link2 size={16} />
+                            </button>
+                            {user.role !== 'admin' && (
+                              <button
+                                onClick={() => handleDeleteUser(user.id)}
+                                className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                title="Slett bruker"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Add Worker Form */}
+        {isAdding && (
             <div className="bg-white rounded-lg border border-gray-200 p-4">
               <h3 className="font-medium mb-4">Ny ansatt</h3>
               <div className="grid gap-4 md:grid-cols-3">

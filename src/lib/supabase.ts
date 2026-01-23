@@ -41,3 +41,14 @@ export interface DbProjectAssignment {
   created_at: string;
   updated_at: string;
 }
+
+export interface DbAppUser {
+  id: string;
+  username: string;
+  password_hash: string;
+  role: 'admin' | 'prosjektleder';
+  worker_id: string | null;
+  profile_color: string;
+  created_at: string;
+  updated_at: string;
+}

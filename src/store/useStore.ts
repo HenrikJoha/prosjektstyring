@@ -9,13 +9,17 @@ interface AppState {
   assignments: ProjectAssignment[];
   isLoading: boolean;
   
+  // Role-based filtering
+  currentUserWorkerId: string | null; // The worker ID linked to the current user (for project leaders)
+  isAdmin: boolean;
+  
   // UI State
   activeTab: 'schedule' | 'workers' | 'finance';
   dragSelection: DragSelection | null;
   selectedProjectId: string | null;
   
   // Data loading
-  loadData: () => Promise<void>;
+  loadData: (userWorkerId?: string | null, isAdmin?: boolean) => Promise<void>;
   
   // Worker actions
   addWorker: (worker: Omit<Worker, 'id'>) => Promise<void>;
@@ -80,24 +84,61 @@ export const useStore = create<AppState>()((set, get) => ({
   projects: [],
   assignments: [],
   isLoading: true,
+  currentUserWorkerId: null,
+  isAdmin: false,
   activeTab: 'schedule',
   dragSelection: null,
   selectedProjectId: null,
   
-  // Load all data from Supabase
-  loadData: async () => {
-    set({ isLoading: true });
+  // Load data from Supabase with role-based filtering
+  loadData: async (userWorkerId?: string | null, isAdmin: boolean = false) => {
+    set({ isLoading: true, currentUserWorkerId: userWorkerId || null, isAdmin });
     
+    // Fetch all data first
     const [workersRes, projectsRes, assignmentsRes] = await Promise.all([
       supabase.from('workers').select('*').order('created_at'),
       supabase.from('projects').select('*').order('created_at'),
       supabase.from('project_assignments').select('*').order('created_at'),
     ]);
     
+    let workers = (workersRes.data || []).map(dbWorkerToWorker);
+    let projects = (projectsRes.data || []).map(dbProjectToProject);
+    let assignments = (assignmentsRes.data || []).map(dbAssignmentToAssignment);
+    
+    // If user is a project leader (not admin), filter data
+    if (!isAdmin && userWorkerId) {
+      // Get the project leader's ID
+      const projectLeader = workers.find(w => w.id === userWorkerId);
+      
+      if (projectLeader && projectLeader.role === 'prosjektleder') {
+        // Filter workers: only show the project leader and their team members
+        workers = workers.filter(w => 
+          w.id === userWorkerId || // The project leader themselves
+          w.projectLeaderId === userWorkerId // Workers under this project leader
+        );
+        
+        // Filter projects: only show projects assigned to this project leader
+        // Also include system projects (sick leave, vacation) for everyone
+        projects = projects.filter(p => 
+          p.projectLeaderId === userWorkerId || // Projects assigned to this leader
+          p.isSystem // System projects (sick leave, vacation)
+        );
+        
+        // Get all project IDs the leader can see
+        const visibleProjectIds = new Set(projects.map(p => p.id));
+        const visibleWorkerIds = new Set(workers.map(w => w.id));
+        
+        // Filter assignments: only show assignments for visible projects and workers
+        assignments = assignments.filter(a => 
+          visibleProjectIds.has(a.projectId) && visibleWorkerIds.has(a.workerId)
+        );
+      }
+    }
+    
     set({
-      workers: (workersRes.data || []).map(dbWorkerToWorker),
-      projects: (projectsRes.data || []).map(dbProjectToProject),
-      assignments: (assignmentsRes.data || []).map(dbAssignmentToAssignment),
+      workers,
+      projects,
+      assignments,
       isLoading: false,
     });
   },
@@ -164,6 +205,14 @@ export const useStore = create<AppState>()((set, get) => ({
   
   // Project actions
   addProject: async (project) => {
+    const { currentUserWorkerId, isAdmin } = get();
+    
+    // If project leader is creating a project, auto-assign to them
+    let projectLeaderId = project.projectLeaderId || null;
+    if (!isAdmin && currentUserWorkerId && !projectLeaderId) {
+      projectLeaderId = currentUserWorkerId;
+    }
+    
     const { data, error } = await supabase
       .from('projects')
       .insert({
@@ -176,7 +225,7 @@ export const useStore = create<AppState>()((set, get) => ({
         billing_type: project.billingType || 'tilbud',
         status: project.status,
         project_type: project.projectType || 'regular',
-        project_leader_id: project.projectLeaderId || null,
+        project_leader_id: projectLeaderId,
       })
       .select()
       .single();
