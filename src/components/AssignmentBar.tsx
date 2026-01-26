@@ -122,6 +122,11 @@ export default function AssignmentBar({
   const clearDragState = useCallback((skipConfirmation: boolean = false) => {
     const wasActive = isDragging || isResizing;
     const hadOriginalDates = originalDatesRef.current;
+    const hadDragState = dragStateRef.current !== null; // Check if drag was ever initiated
+    
+    // Store current dates before clearing state
+    const currentStartDate = assignment.startDate;
+    const currentEndDate = assignment.endDate;
     
     dragStateRef.current = null;
     touchStartPosRef.current = null;
@@ -136,17 +141,24 @@ export default function AssignmentBar({
     }
     
     // Check if dates changed and show confirmation
-    if (!skipConfirmation && wasActive && hadOriginalDates) {
+    // Show confirmation if:
+    // 1. Drag was active (isDragging or isResizing was true), OR
+    // 2. Drag state was initiated (hadDragState) - covers edge cases where drag activated but state wasn't fully set
+    // 3. We have original dates to compare against
+    if (!skipConfirmation && hadOriginalDates && (wasActive || hadDragState)) {
       const datesChanged = 
-        hadOriginalDates.startDate !== assignment.startDate || 
-        hadOriginalDates.endDate !== assignment.endDate;
+        hadOriginalDates.startDate !== currentStartDate || 
+        hadOriginalDates.endDate !== currentEndDate;
       
       if (datesChanged) {
-        setPendingDates({ startDate: assignment.startDate, endDate: assignment.endDate });
+        setPendingDates({ startDate: currentStartDate, endDate: currentEndDate });
         setShowConfirmModal(true);
       } else {
         originalDatesRef.current = null;
       }
+    } else if (!skipConfirmation && hadOriginalDates) {
+      // If we had original dates but no drag was active, clear them
+      originalDatesRef.current = null;
     }
   }, [isDragging, isResizing, assignment.startDate, assignment.endDate]);
   
@@ -231,14 +243,15 @@ export default function AssignmentBar({
     isTouchRef.current = true;
     touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
 
+    // ALWAYS store original dates immediately when touch starts
+    // This ensures confirmation will work even if drag activates unexpectedly
+    originalDatesRef.current = {
+      startDate: assignment.startDate,
+      endDate: assignment.endDate,
+    };
+
     // For resize, start immediately
     if (type !== 'drag') {
-      // Store original dates for potential revert
-      originalDatesRef.current = {
-        startDate: assignment.startDate,
-        endDate: assignment.endDate,
-      };
-      
       dragStateRef.current = {
         type,
         startX: touch.clientX,
@@ -268,17 +281,8 @@ export default function AssignmentBar({
     // Set pending state to attach the global listener immediately
     setIsTouchPending(true);
 
-    // Store current dates for reference
-    const currentStartDate = assignment.startDate;
-    const currentEndDate = assignment.endDate;
-
     // Start hold timer
     holdTimerRef.current = setTimeout(() => {
-      // Store original dates when drag activates
-      originalDatesRef.current = {
-        startDate: currentStartDate,
-        endDate: currentEndDate,
-      };
       // After 500ms (and user stayed still), activate drag mode
       setTouchHoldActive(true);
       setIsDragging(true);
