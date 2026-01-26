@@ -111,10 +111,13 @@ export const useStore = create<AppState>()((set, get) => ({
       const projectLeader = workers.find(w => w.id === userWorkerId);
       
       if (projectLeader && projectLeader.role === 'prosjektleder') {
-        // Filter workers: only show the project leader and their team members
+        // Filter workers: only show the project leader and their CURRENT team members
+        // Important: Only include carpenters (tømrer) who are assigned to this leader
+        // This prevents showing workers who used to work for this leader but are now
+        // project leaders themselves or have been reassigned
         workers = workers.filter(w => 
           w.id === userWorkerId || // The project leader themselves
-          w.projectLeaderId === userWorkerId // Workers under this project leader
+          (w.role === 'tømrer' && w.projectLeaderId === userWorkerId) // Only carpenters currently under this project leader
         );
         
         const visibleWorkerIds = new Set(workers.map(w => w.id));

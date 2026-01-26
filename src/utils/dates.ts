@@ -157,6 +157,11 @@ export function formatDateFull(date: Date): string {
   return format(date, 'EEEE d. MMMM', { locale: nb });
 }
 
+export function formatDateNorwegian(dateString: string): string {
+  const date = parseISO(dateString);
+  return format(date, 'd. MMM yyyy', { locale: nb });
+}
+
 export { 
   addDays, 
   parseISO, 
@@ -165,5 +170,6 @@ export {
   isWithinInterval, 
   differenceInDays,
   startOfDay,
-  eachDayOfInterval
+  eachDayOfInterval,
+  formatDateNorwegian
 };

@@ -4,8 +4,8 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/store/useStore';
 import { ProjectAssignment, Project } from '@/types';
-import { DayData } from '@/utils/dates';
-import { GripVertical } from 'lucide-react';
+import { DayData, formatDateNorwegian } from '@/utils/dates';
+import { GripVertical, Check, X } from 'lucide-react';
 import clsx from 'clsx';
 import EditProjectModal from './EditProjectModal';
 
@@ -41,6 +41,7 @@ export default function AssignmentBar({
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null);
   const [touchHoldActive, setTouchHoldActive] = useState(false);
+  const [isTouchPending, setIsTouchPending] = useState(false); // Track when waiting for hold to complete
 
   // Refs for tracking drag data
   const dragStateRef = useRef<{
@@ -52,6 +53,14 @@ export default function AssignmentBar({
   } | null>(null);
   const holdTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isTouchRef = useRef(false);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  
+  // Store original dates for confirmation/revert
+  const originalDatesRef = useRef<{ startDate: string; endDate: string } | null>(null);
+  
+  // Confirmation modal state
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingDates, setPendingDates] = useState<{ startDate: string; endDate: string } | null>(null);
 
   // Get date from X position
   const getDateFromPosition = useCallback((xPosition: number) => {
@@ -109,18 +118,57 @@ export default function AssignmentBar({
     }
   }, [getContainer, getDateFromPosition, allDays, assignment, updateAssignment]);
 
-  // Clear all drag state
-  const clearDragState = useCallback(() => {
+  // Clear all drag state and check if confirmation is needed
+  const clearDragState = useCallback((skipConfirmation: boolean = false) => {
+    const wasActive = isDragging || isResizing;
+    const hadOriginalDates = originalDatesRef.current;
+    
     dragStateRef.current = null;
+    touchStartPosRef.current = null;
     setIsDragging(false);
     setIsResizing(null);
     setTouchHoldActive(false);
+    setIsTouchPending(false);
     isTouchRef.current = false;
     if (holdTimerRef.current) {
       clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
     }
+    
+    // Check if dates changed and show confirmation
+    if (!skipConfirmation && wasActive && hadOriginalDates) {
+      const datesChanged = 
+        hadOriginalDates.startDate !== assignment.startDate || 
+        hadOriginalDates.endDate !== assignment.endDate;
+      
+      if (datesChanged) {
+        setPendingDates({ startDate: assignment.startDate, endDate: assignment.endDate });
+        setShowConfirmModal(true);
+      } else {
+        originalDatesRef.current = null;
+      }
+    }
+  }, [isDragging, isResizing, assignment.startDate, assignment.endDate]);
+  
+  // Handle confirmation
+  const handleConfirmMove = useCallback(() => {
+    setShowConfirmModal(false);
+    setPendingDates(null);
+    originalDatesRef.current = null;
   }, []);
+  
+  // Handle cancel - revert to original dates
+  const handleCancelMove = useCallback(() => {
+    if (originalDatesRef.current) {
+      updateAssignment(assignment.id, {
+        startDate: originalDatesRef.current.startDate,
+        endDate: originalDatesRef.current.endDate,
+      });
+    }
+    setShowConfirmModal(false);
+    setPendingDates(null);
+    originalDatesRef.current = null;
+  }, [assignment.id, updateAssignment]);
 
   // ===== MOUSE HANDLERS (Desktop) =====
 
@@ -130,6 +178,12 @@ export default function AssignmentBar({
     e.preventDefault();
 
     isTouchRef.current = false;
+    
+    // Store original dates for potential revert
+    originalDatesRef.current = {
+      startDate: assignment.startDate,
+      endDate: assignment.endDate,
+    };
     
     dragStateRef.current = {
       type,
@@ -144,7 +198,7 @@ export default function AssignmentBar({
     } else {
       setIsResizing(type === 'resize-left' ? 'left' : 'right');
     }
-  }, [style.left, getBarDuration]);
+  }, [style.left, getBarDuration, assignment.startDate, assignment.endDate]);
 
   // Global mouse move/up handlers
   useEffect(() => {
@@ -175,9 +229,16 @@ export default function AssignmentBar({
     
     const touch = e.touches[0];
     isTouchRef.current = true;
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
 
     // For resize, start immediately
     if (type !== 'drag') {
+      // Store original dates for potential revert
+      originalDatesRef.current = {
+        startDate: assignment.startDate,
+        endDate: assignment.endDate,
+      };
+      
       dragStateRef.current = {
         type,
         startX: touch.clientX,
@@ -187,10 +248,11 @@ export default function AssignmentBar({
       };
       setIsResizing(type === 'resize-left' ? 'left' : 'right');
       setTouchHoldActive(true);
+      setIsTouchPending(true); // Trigger listener attachment
       return;
     }
 
-    // For drag, require 500ms hold
+    // For drag, require 500ms hold while staying STILL
     const startX = touch.clientX;
     const startY = touch.clientY;
 
@@ -203,36 +265,50 @@ export default function AssignmentBar({
       duration: getBarDuration(),
     };
 
+    // Set pending state to attach the global listener immediately
+    setIsTouchPending(true);
+
+    // Store current dates for reference
+    const currentStartDate = assignment.startDate;
+    const currentEndDate = assignment.endDate;
+
     // Start hold timer
     holdTimerRef.current = setTimeout(() => {
-      // After 500ms, activate drag mode
+      // Store original dates when drag activates
+      originalDatesRef.current = {
+        startDate: currentStartDate,
+        endDate: currentEndDate,
+      };
+      // After 500ms (and user stayed still), activate drag mode
       setTouchHoldActive(true);
       setIsDragging(true);
       // Vibrate to give feedback
       if (navigator.vibrate) navigator.vibrate(50);
     }, TOUCH_HOLD_DELAY);
-  }, [style.left, getBarDuration]);
+  }, [style.left, getBarDuration, assignment.startDate, assignment.endDate]);
 
-  // Global touch move/end handlers
+  // Global touch move/end handlers - attach immediately when touch pending or active
   useEffect(() => {
-    if (!isTouchRef.current) return;
+    // Attach listener when touch is pending (waiting for hold) OR when actively dragging/resizing
+    if (!isTouchPending && !isDragging && !isResizing) return;
 
     const handleTouchMove = (e: TouchEvent) => {
       const touch = e.touches[0];
       
-      // If hold timer is still running, check if user moved too much (cancels hold)
-      if (holdTimerRef.current && !touchHoldActive) {
-        if (dragStateRef.current) {
-          const dx = Math.abs(touch.clientX - dragStateRef.current.startX);
-          const dy = Math.abs(touch.clientY - dragStateRef.current.startY);
-          if (dx > 10 || dy > 10) {
-            // User moved before hold completed - cancel
-            clearTimeout(holdTimerRef.current);
-            holdTimerRef.current = null;
-            dragStateRef.current = null;
-            isTouchRef.current = false;
-            return;
-          }
+      // If hold timer is still running (waiting for 500ms hold), check if user moved (cancels hold)
+      if (holdTimerRef.current && !touchHoldActive && touchStartPosRef.current) {
+        const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
+        const dy = Math.abs(touch.clientY - touchStartPosRef.current.y);
+        // Use a small threshold (5px) - user must stay STILL
+        if (dx > 5 || dy > 5) {
+          // User moved before hold completed - cancel and allow normal scrolling
+          clearTimeout(holdTimerRef.current);
+          holdTimerRef.current = null;
+          dragStateRef.current = null;
+          touchStartPosRef.current = null;
+          isTouchRef.current = false;
+          setIsTouchPending(false);
+          return;
         }
         return; // Don't do anything until hold activates
       }
@@ -259,7 +335,7 @@ export default function AssignmentBar({
       window.removeEventListener('touchend', handleTouchEnd);
       window.removeEventListener('touchcancel', handleTouchEnd);
     };
-  }, [isDragging, isResizing, touchHoldActive, handleDragMove, clearDragState]);
+  }, [isTouchPending, isDragging, isResizing, touchHoldActive, handleDragMove, clearDragState]);
 
   // Cleanup hold timer on unmount
   useEffect(() => {
@@ -353,6 +429,95 @@ export default function AssignmentBar({
         />,
         document.body
       )}
+      
+      {/* Move Confirmation Modal */}
+      {showConfirmModal && pendingDates && createPortal(
+        <MoveConfirmationModal
+          projectName={project.name}
+          startDate={pendingDates.startDate}
+          endDate={pendingDates.endDate}
+          onConfirm={handleConfirmMove}
+          onCancel={handleCancelMove}
+        />,
+        document.body
+      )}
     </>
+  );
+}
+
+// Move Confirmation Modal Component
+interface MoveConfirmationModalProps {
+  projectName: string;
+  startDate: string;
+  endDate: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function MoveConfirmationModal({ 
+  projectName, 
+  startDate, 
+  endDate, 
+  onConfirm, 
+  onCancel 
+}: MoveConfirmationModalProps) {
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  
+  // Focus confirm button on mount and handle keyboard
+  useEffect(() => {
+    confirmButtonRef.current?.focus();
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        onConfirm();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        onCancel();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onConfirm, onCancel]);
+  
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-200">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+          Bekreft flytting
+        </h3>
+        <p className="text-gray-600 mb-6">
+          Ønsker du å flytte prosjektet <span className="font-semibold text-gray-900">&quot;{projectName}&quot;</span> til datoene:
+        </p>
+        <div className="bg-gray-50 rounded-lg p-4 mb-6">
+          <div className="text-center">
+            <span className="text-lg font-medium text-gray-900">
+              {formatDateNorwegian(startDate)} — {formatDateNorwegian(endDate)}
+            </span>
+          </div>
+        </div>
+        <div className="flex gap-3 justify-end">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors flex items-center gap-2"
+          >
+            <X size={18} />
+            Avbryt
+          </button>
+          <button
+            ref={confirmButtonRef}
+            onClick={onConfirm}
+            className="px-4 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-2"
+          >
+            <Check size={18} />
+            OK
+          </button>
+        </div>
+        <p className="text-xs text-gray-400 mt-4 text-center hidden md:block">
+          Trykk Enter for å bekrefte, Esc for å avbryte
+        </p>
+      </div>
+    </div>
   );
 }
