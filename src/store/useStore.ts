@@ -105,6 +105,27 @@ export const useStore = create<AppState>()((set, get) => ({
     let projects = (projectsRes.data || []).map(dbProjectToProject);
     let assignments = (assignmentsRes.data || []).map(dbAssignmentToAssignment);
     
+    // Cleanup: Ensure all project leaders have project_leader_id = null
+    // This fixes any stale data where a project leader still has an old project_leader_id
+    const projectLeadersWithStaleData = workers.filter(
+      w => w.role === 'prosjektleder' && w.projectLeaderId !== undefined
+    );
+    
+    if (projectLeadersWithStaleData.length > 0) {
+      // Fix stale data in database
+      const staleIds = projectLeadersWithStaleData.map(w => w.id);
+      await supabase
+        .from('workers')
+        .update({ project_leader_id: null })
+        .in('id', staleIds)
+        .eq('role', 'prosjektleder');
+      
+      // Also fix in local data
+      workers = workers.map(w => 
+        w.role === 'prosjektleder' ? { ...w, projectLeaderId: undefined } : w
+      );
+    }
+    
     // If user is a project leader (not admin), filter data
     if (!isAdmin && userWorkerId) {
       // Get the project leader's ID
@@ -174,8 +195,24 @@ export const useStore = create<AppState>()((set, get) => ({
   updateWorker: async (id, updates) => {
     const dbUpdates: Partial<DbWorker> = {};
     if (updates.name !== undefined) dbUpdates.name = updates.name;
-    if (updates.role !== undefined) dbUpdates.role = updates.role;
-    if (updates.projectLeaderId !== undefined) dbUpdates.project_leader_id = updates.projectLeaderId || null;
+    if (updates.role !== undefined) {
+      dbUpdates.role = updates.role;
+      // If role is being changed to prosjektleder, automatically clear project_leader_id
+      // Project leaders cannot have a project leader themselves
+      if (updates.role === 'prosjektleder') {
+        dbUpdates.project_leader_id = null;
+        updates.projectLeaderId = undefined; // Also update local state
+      }
+    }
+    if (updates.projectLeaderId !== undefined) {
+      // Only set project_leader_id if role is tømrer (carpenter)
+      // If role is prosjektleder, it should always be null
+      if (updates.role !== 'prosjektleder') {
+        dbUpdates.project_leader_id = updates.projectLeaderId || null;
+      } else {
+        dbUpdates.project_leader_id = null;
+      }
+    }
     
     const { error } = await supabase
       .from('workers')
