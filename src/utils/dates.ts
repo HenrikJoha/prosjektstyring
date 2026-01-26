@@ -170,6 +170,5 @@ export {
   isWithinInterval, 
   differenceInDays,
   startOfDay,
-  eachDayOfInterval,
-  formatDateNorwegian
+  eachDayOfInterval
 };
