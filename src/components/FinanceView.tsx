@@ -289,7 +289,7 @@ export default function FinanceView() {
 
   return (
     <div className="p-4 md:p-6 overflow-auto h-full pb-24 md:pb-6">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-full md:max-w-[95vw] lg:max-w-[98vw] xl:max-w-[99vw] mx-auto">
         {/* Summary Card - Only Ordrereserve */}
         <div className="mb-8 flex items-center justify-between">
           <div className="bg-white rounded-xl border border-gray-200 p-6 inline-block">

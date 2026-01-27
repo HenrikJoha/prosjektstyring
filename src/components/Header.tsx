@@ -34,15 +34,17 @@ export default function Header() {
           </h1>
           
           <div className="flex items-center gap-4">
-            {/* Ordrereserve */}
-            <div className="bg-blue-50 px-4 py-2 rounded-lg">
-              <div className="text-xs text-blue-600 font-medium uppercase tracking-wide">
-                Ordrereserve
+            {/* Ordrereserve - Hidden in Finance tab */}
+            {activeTab !== 'finance' && (
+              <div className="bg-blue-50 px-4 py-2 rounded-lg">
+                <div className="text-xs text-blue-600 font-medium uppercase tracking-wide">
+                  Ordrereserve
+                </div>
+                <div className="text-lg md:text-xl font-bold text-blue-700">
+                  {formatCurrency(totalOrdrereserve)}
+                </div>
               </div>
-              <div className="text-lg md:text-xl font-bold text-blue-700">
-                {formatCurrency(totalOrdrereserve)}
-              </div>
-            </div>
+            )}
 
             {/* User Menu */}
             {user && (
