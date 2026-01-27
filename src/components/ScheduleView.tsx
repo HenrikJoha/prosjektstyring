@@ -398,7 +398,7 @@ export default function ScheduleView() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Navigation Controls */}
-      <div className="flex items-center gap-4 px-4 py-3 bg-white border-b border-gray-200">
+      <div className="flex items-center gap-4 px-4 py-3 bg-gray-200 border-b border-gray-200">
         <div className="flex items-center gap-2">
           <button
             onClick={() => navigateWeeks(-1)}
@@ -434,7 +434,7 @@ export default function ScheduleView() {
       >
         <div className="min-w-max pb-24 md:pb-4">
           {/* Header with months, week numbers and days */}
-          <div className="sticky top-0 z-20 bg-white border-b border-gray-200">
+          <div className="sticky top-0 z-20 bg-gray-200 border-b border-gray-200">
             {/* Month row */}
             <div className="flex">
               <div className="w-48 flex-shrink-0 px-4 py-1 bg-blue-600 border-r-4 border-white" />
@@ -477,7 +477,7 @@ export default function ScheduleView() {
 
             {/* Day headers row */}
             <div className="flex">
-              <div className="w-48 flex-shrink-0 px-4 py-1 bg-white border-r border-gray-200" />
+              <div className="w-48 flex-shrink-0 px-4 py-1 bg-gray-200 border-r border-gray-200" />
               <div className="flex">
                 {weeks.map((week, weekIdx) => (
                   <div key={`days-${week.weekNumber}-${week.year}`} className="flex">
@@ -490,8 +490,8 @@ export default function ScheduleView() {
                           key={day.dateString}
                           className={clsx(
                             'text-center py-1 text-xs',
-                            isToday && 'bg-blue-100',
-                            day.isHoliday && 'bg-red-50 text-red-600',
+                            isToday && 'bg-gray-300 border-l-2 border-r-2 border-blue-500',
+                            day.isHoliday && 'bg-red-200 text-red-800',
                             isLastDayOfWeek && weekIdx < weeks.length - 1 && 'border-r-2 border-gray-300'
                           )}
                           style={{ width: CELL_WIDTH }}
@@ -501,7 +501,7 @@ export default function ScheduleView() {
                           <div className={clsx(
                             'text-gray-500',
                             isToday && 'text-blue-600 font-bold',
-                            day.isHoliday && 'text-red-600'
+                            day.isHoliday && 'text-red-800 font-semibold'
                           )}>
                             {formatDateShort(day.date)}
                           </div>
@@ -531,26 +531,23 @@ export default function ScheduleView() {
                       className={clsx(
                         'flex',
                         isFirstInGroup && groupIdx > 0 && 'border-t-2 border-gray-200',
-                        isLeader ? 'bg-blue-50/30' : 'bg-white'
+                        isLeader ? 'bg-blue-50/30' : 'bg-gray-200'
                       )}
                       style={{ height: rowHeight }}
                     >
                       {/* Worker name column */}
-                      <div className={clsx(
-                        'w-48 flex-shrink-0 px-4 flex items-center gap-2 border-r border-gray-200',
-                        !isLeader && 'pl-8'
-                      )}>
+                      <div className="w-48 flex-shrink-0 px-4 flex items-center gap-2 border-r border-gray-200">
                         <div className={clsx(
                           'w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-medium flex-shrink-0',
                           isLeader ? 'bg-blue-600' : 'bg-gray-500'
                         )}>
                           {worker.name.substring(0, 2).toUpperCase()}
                         </div>
-                        <div className="truncate">
-                          <div className="font-medium text-sm text-gray-900 truncate">{worker.name}</div>
-                          <div className="text-xs text-gray-500">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="font-medium text-sm text-gray-900 truncate">{worker.name}</span>
+                          <span className="text-xs text-gray-500 flex-shrink-0">
                             {isLeader ? 'Prosjektleder' : 'Tømrer'}
-                          </div>
+                          </span>
                         </div>
                       </div>
 
@@ -570,8 +567,8 @@ export default function ScheduleView() {
                                   className={clsx(
                                     'calendar-cell border-b border-r border-gray-100 cursor-crosshair',
                                     isSelected && 'bg-blue-200',
-                                    isToday && !isSelected && 'bg-blue-50',
-                                    day.isHoliday && !isSelected && 'bg-red-50/50',
+                                    isToday && !isSelected && 'bg-gray-300 border-l-2 border-r-2 border-blue-500',
+                                    day.isHoliday && !isSelected && 'bg-red-100',
                                     isLastDayOfWeek && weekIdx < weeks.length - 1 && 'border-r-2 border-r-gray-300'
                                   )}
                                   style={{ width: CELL_WIDTH, height: rowHeight }}

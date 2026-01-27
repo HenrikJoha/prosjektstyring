@@ -28,6 +28,8 @@ export interface DbProject {
   project_type: 'regular' | 'sick_leave' | 'vacation';
   is_system: boolean;
   project_leader_id: string | null;
+  planned_start_date: string | null;
+  duration_days: number | null;
   created_at: string;
   updated_at: string;
 }

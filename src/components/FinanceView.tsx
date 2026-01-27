@@ -4,7 +4,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/store/useStore';
 import { Project, Worker } from '@/types';
-import { formatCurrency, parseISO, eachDayOfInterval } from '@/utils/dates';
+import { formatCurrency, parseISO, eachDayOfInterval, formatDateNorwegian } from '@/utils/dates';
 import { Check, X, DollarSign, TrendingUp, Trash2, Plus, User, ChevronDown } from 'lucide-react';
 import clsx from 'clsx';
 import EditProjectModal from './EditProjectModal';
@@ -98,7 +98,7 @@ const PROJECT_COLORS = [
 export default function FinanceView() {
   const { projects, assignments, workers, updateProject, deleteProject, addProject, getProjectFinance, getTotalOrdrereserve } = useStore();
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editField, setEditField] = useState<'akonto' | 'amount' | 'fakturert' | null>(null);
+  const [editField, setEditField] = useState<'akonto' | 'amount' | 'fakturert' | 'startDate' | 'duration' | null>(null);
   const [editValue, setEditValue] = useState<string>('');
   const inputRef = useRef<HTMLInputElement>(null);
   
@@ -111,6 +111,8 @@ export default function FinanceView() {
     amount: '',
     projectLeaderId: '',
     billingType: 'tilbud' as 'tilbud' | 'timer_materiell',
+    plannedStartDate: '',
+    durationDays: '',
   });
 
   // Assign leader dropdown state
@@ -126,9 +128,14 @@ export default function FinanceView() {
   const activeProjects = projects.filter(p => p.status === 'active' && p.projectType === 'regular');
   const completedProjects = projects.filter(p => p.status === 'completed' && p.projectType === 'regular');
 
-  // Group active projects by project leader
+  // Separate unassigned projects from assigned ones
+  const unassignedProjects = useMemo(() => {
+    return activeProjects.filter(p => !p.projectLeaderId);
+  }, [activeProjects]);
+
+  // Group active projects by project leader (excluding unassigned)
   const groupedProjects = useMemo(() => {
-    const groups: { leader: { id: string; name: string } | null; projects: Project[] }[] = [];
+    const groups: { leader: { id: string; name: string }; projects: Project[] }[] = [];
     
     // Group by each project leader
     projectLeaders.forEach(leader => {
@@ -137,12 +144,6 @@ export default function FinanceView() {
         groups.push({ leader: { id: leader.id, name: leader.name }, projects: leaderProjects });
       }
     });
-    
-    // Unassigned projects (no project leader)
-    const unassignedProjects = activeProjects.filter(p => !p.projectLeaderId);
-    if (unassignedProjects.length > 0) {
-      groups.push({ leader: null, projects: unassignedProjects });
-    }
     
     return groups;
   }, [activeProjects, projectLeaders]);
@@ -193,10 +194,14 @@ export default function FinanceView() {
     return statusMap;
   }, [activeProjects, assignments]);
 
-  const handleEdit = (projectId: string, field: 'akonto' | 'amount' | 'fakturert', currentValue: number) => {
+  const handleEdit = (projectId: string, field: 'akonto' | 'amount' | 'fakturert' | 'startDate' | 'duration', currentValue: number | string) => {
     setEditingId(projectId);
     setEditField(field);
-    setEditValue(currentValue === 0 ? '' : currentValue.toString());
+    if (field === 'startDate') {
+      setEditValue(currentValue as string || '');
+    } else {
+      setEditValue((currentValue === 0 || currentValue === '') ? '' : currentValue.toString());
+    }
   };
 
   const handleSave = (projectId: string) => {
@@ -215,6 +220,10 @@ export default function FinanceView() {
       } else {
         updateProject(projectId, { fakturert: fakturertValue });
       }
+    } else if (editField === 'startDate') {
+      updateProject(projectId, { plannedStartDate: editValue || undefined });
+    } else if (editField === 'duration') {
+      updateProject(projectId, { durationDays: numValue > 0 ? numValue : undefined });
     }
     setEditingId(null);
     setEditField(null);
@@ -248,6 +257,8 @@ export default function FinanceView() {
         projectType: 'regular',
         isSystem: false,
         projectLeaderId: newProject.projectLeaderId || undefined,
+        plannedStartDate: newProject.plannedStartDate || undefined,
+        durationDays: newProject.durationDays === '' ? undefined : Number(newProject.durationDays),
       });
       setNewProject({
         name: '',
@@ -256,6 +267,8 @@ export default function FinanceView() {
         amount: '',
         projectLeaderId: '',
         billingType: 'tilbud',
+        plannedStartDate: '',
+        durationDays: '',
       });
       setShowCreateModal(false);
     }
@@ -301,19 +314,338 @@ export default function FinanceView() {
           </button>
         </div>
 
-        {/* Active Projects Table */}
+        {/* Unassigned Projects Section - Separate box at top */}
+        {unassignedProjects.length > 0 && (
+          <div className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden mb-6">
+            <div className="px-6 py-4 border-b border-gray-200 bg-white">
+              <div className="flex items-center gap-2">
+                <User size={18} className="text-amber-700" />
+                <h2 className="text-lg font-semibold text-amber-900">
+                  Prosjekter som ikke er tildelt ({unassignedProjects.length})
+                </h2>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-white">
+                    <th className="text-left px-4 py-3 text-sm font-medium text-amber-700">Prosjektleder</th>
+                    <th className="text-left px-4 py-3 text-sm font-medium text-amber-700">Prosjekt</th>
+                    <th className="text-right px-4 py-3 text-sm font-medium text-amber-700">Beløp</th>
+                    <th className="text-right px-4 py-3 text-sm font-medium text-amber-700">A konto %</th>
+                    <th className="text-right px-4 py-3 text-sm font-medium text-amber-700">Fakturert</th>
+                    <th className="text-right px-4 py-3 text-sm font-medium text-amber-700">Ordrereserve</th>
+                    <th className="text-center px-4 py-3 text-sm font-medium text-amber-700">Oppstartsdato</th>
+                    <th className="text-center px-4 py-3 text-sm font-medium text-amber-700">Varighet (dager)</th>
+                    <th className="text-center px-4 py-3 text-sm font-medium text-amber-700">Fremdrift</th>
+                    <th className="text-center px-4 py-3 text-sm font-medium text-amber-700">Handling</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {unassignedProjects.map(project => (
+                    <tr key={project.id} className="hover:bg-gray-50 border-t border-gray-100">
+                      <td className="px-4 py-4">
+                        <button
+                          onClick={(e) => handleOpenLeaderDropdown(project.id, e.currentTarget)}
+                          className="flex items-center gap-1 text-sm px-2 py-1 rounded text-amber-700 hover:text-amber-800 hover:bg-gray-100 font-medium"
+                        >
+                          <User size={14} />
+                          <span>Velg...</span>
+                          <ChevronDown size={14} />
+                        </button>
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="w-4 h-4 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: project.color }}
+                          />
+                          <div>
+                            <button
+                              onClick={() => setEditingProject(project)}
+                              className="font-medium text-gray-900 hover:text-blue-600 hover:underline text-left"
+                            >
+                              {project.name}
+                            </button>
+                            {project.description && (
+                              <div className="text-sm text-gray-500 truncate max-w-xs">
+                                {project.description}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      
+                      <td 
+                        className={clsx(
+                          "px-4 py-4 text-right",
+                          !(editingId === project.id && editField === 'amount') && "cursor-pointer hover:bg-gray-100"
+                        )}
+                        onClick={() => !(editingId === project.id && editField === 'amount') && handleEdit(project.id, 'amount', project.amount)}
+                      >
+                        {(editingId === project.id && editField === 'amount') ? (
+                          <div className="flex items-center justify-end gap-2">
+                            <input
+                              ref={inputRef}
+                              type="number"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onKeyDown={(e) => handleKeyDown(e, project.id)}
+                              onFocus={(e) => e.target.select()}
+                              min={0}
+                              className="w-28 px-2 py-1 border border-blue-500 rounded text-right focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                              placeholder="0"
+                            />
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleSave(project.id); }}
+                              className="p-1 text-green-600 hover:bg-green-50 rounded"
+                            >
+                              <Check size={16} />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleCancel(); }}
+                              className="p-1 text-gray-400 hover:bg-gray-100 rounded"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="font-medium text-gray-900">{formatCurrency(project.amount)}</span>
+                        )}
+                      </td>
+                      
+                      {/* A konto % column - only editable for 'tilbud' type */}
+                      <td 
+                        className={clsx(
+                          "px-4 py-4 text-right",
+                          project.billingType === 'tilbud' && !(editingId === project.id && editField === 'akonto') && "cursor-pointer hover:bg-gray-100"
+                        )}
+                        onClick={() => project.billingType === 'tilbud' && !(editingId === project.id && editField === 'akonto') && handleEdit(project.id, 'akonto', project.aKontoPercent)}
+                      >
+                        {project.billingType === 'timer_materiell' ? (
+                          <span className="text-gray-400">-</span>
+                        ) : (editingId === project.id && editField === 'akonto') ? (
+                          <div className="flex items-center justify-end gap-2">
+                            <input
+                              ref={inputRef}
+                              type="number"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onKeyDown={(e) => handleKeyDown(e, project.id)}
+                              onFocus={(e) => e.target.select()}
+                              min={0}
+                              max={100}
+                              className="w-16 px-2 py-1 border border-blue-500 rounded text-right focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                              placeholder="0"
+                            />
+                            <span>%</span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleSave(project.id); }}
+                              className="p-1 text-green-600 hover:bg-green-50 rounded"
+                            >
+                              <Check size={16} />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleCancel(); }}
+                              className="p-1 text-gray-400 hover:bg-gray-100 rounded"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="font-medium">{project.aKontoPercent}%</span>
+                        )}
+                      </td>
+                      
+                      {/* Fakturert column - editable for 'timer_materiell' type */}
+                      <td 
+                        className={clsx(
+                          "px-4 py-4 text-right font-medium text-green-600",
+                          project.billingType === 'timer_materiell' && !(editingId === project.id && editField === 'fakturert') && "cursor-pointer hover:bg-gray-100"
+                        )}
+                        onClick={() => project.billingType === 'timer_materiell' && !(editingId === project.id && editField === 'fakturert') && handleEdit(project.id, 'fakturert', project.fakturert)}
+                      >
+                        {(editingId === project.id && editField === 'fakturert') ? (
+                          <div className="flex items-center justify-end gap-2">
+                            <input
+                              ref={inputRef}
+                              type="number"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onKeyDown={(e) => handleKeyDown(e, project.id)}
+                              onFocus={(e) => e.target.select()}
+                              min={0}
+                              className="w-28 px-2 py-1 border border-blue-500 rounded text-right focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                              placeholder="0"
+                            />
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleSave(project.id); }}
+                              className="p-1 text-green-600 hover:bg-green-50 rounded"
+                            >
+                              <Check size={16} />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleCancel(); }}
+                              className="p-1 text-gray-400 hover:bg-gray-100 rounded"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                        ) : (
+                          formatCurrency(getProjectFinance(project.id).fakturert)
+                        )}
+                      </td>
+                      <td className="px-4 py-4 text-right font-medium text-orange-600">
+                        {formatCurrency(getProjectFinance(project.id).ordrereserve)}
+                      </td>
+                      
+                      {/* Oppstartsdato column */}
+                      <td 
+                        className={clsx(
+                          "px-4 py-4 text-center",
+                          !(editingId === project.id && editField === 'startDate') && "cursor-pointer hover:bg-gray-100"
+                        )}
+                        onClick={() => !(editingId === project.id && editField === 'startDate') && handleEdit(project.id, 'startDate', project.plannedStartDate || '')}
+                      >
+                        {(editingId === project.id && editField === 'startDate') ? (
+                          <div className="flex items-center justify-center gap-2">
+                            <input
+                              ref={inputRef}
+                              type="date"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onKeyDown={(e) => handleKeyDown(e, project.id)}
+                              className="px-2 py-1 border border-blue-500 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                            />
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleSave(project.id); }}
+                              className="p-1 text-green-600 hover:bg-green-50 rounded"
+                            >
+                              <Check size={16} />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleCancel(); }}
+                              className="p-1 text-gray-400 hover:bg-gray-100 rounded"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-gray-900">
+                            {project.plannedStartDate ? formatDateNorwegian(project.plannedStartDate) : '-'}
+                          </span>
+                        )}
+                      </td>
+                      
+                      {/* Varighet (dager) column */}
+                      <td 
+                        className={clsx(
+                          "px-4 py-4 text-center",
+                          !(editingId === project.id && editField === 'duration') && "cursor-pointer hover:bg-gray-100"
+                        )}
+                        onClick={() => !(editingId === project.id && editField === 'duration') && handleEdit(project.id, 'duration', project.durationDays || 0)}
+                      >
+                        {(editingId === project.id && editField === 'duration') ? (
+                          <div className="flex items-center justify-center gap-2">
+                            <input
+                              ref={inputRef}
+                              type="number"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onKeyDown={(e) => handleKeyDown(e, project.id)}
+                              onFocus={(e) => e.target.select()}
+                              min={0}
+                              className="w-20 px-2 py-1 border border-blue-500 rounded text-sm text-center focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                              placeholder="0"
+                            />
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleSave(project.id); }}
+                              className="p-1 text-green-600 hover:bg-green-50 rounded"
+                            >
+                              <Check size={16} />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleCancel(); }}
+                              className="p-1 text-gray-400 hover:bg-gray-100 rounded"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-gray-900">
+                            {project.durationDays ? `${project.durationDays} dager` : '-'}
+                          </span>
+                        )}
+                      </td>
+                      
+                      <td className="px-4 py-4">
+                        {(() => {
+                          const status = projectStatus.get(project.id);
+                          if (!status || status.plannedDays === 0) {
+                            return <span className="text-gray-400 text-sm text-center block">-</span>;
+                          }
+                          return (
+                            <div className="flex flex-col items-center gap-1">
+                              <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                <div 
+                                  className={clsx(
+                                    'h-full rounded-full transition-all',
+                                    status.percentage >= 100 ? 'bg-green-500' : 
+                                    status.percentage >= 75 ? 'bg-blue-500' :
+                                    status.percentage >= 50 ? 'bg-yellow-500' : 'bg-gray-400'
+                                  )}
+                                  style={{ width: `${Math.min(100, status.percentage)}%` }}
+                                />
+                              </div>
+                              <span className="text-xs text-gray-500">
+                                {status.percentage}%
+                              </span>
+                            </div>
+                          );
+                        })()}
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            onClick={() => updateProject(project.id, { status: 'completed' })}
+                            className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-600 rounded-full hover:bg-green-100 hover:text-green-700 transition-colors"
+                          >
+                            Fullført
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm('Er du sikker på at du vil slette dette prosjektet?')) {
+                                deleteProject(project.id);
+                              }
+                            }}
+                            className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                            title="Slett prosjekt"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Active Projects Table - Assigned to project leaders */}
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-8">
           <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-semibold text-gray-900">Aktive prosjekter</h2>
           </div>
           
-          {activeProjects.length === 0 ? (
+          {groupedProjects.length === 0 && unassignedProjects.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
               <DollarSign size={48} className="mx-auto mb-4 opacity-50" />
               <p>Ingen aktive prosjekter.</p>
               <p className="text-sm">Klikk &quot;Nytt prosjekt&quot; for å opprette et prosjekt.</p>
             </div>
-          ) : (
+          ) : groupedProjects.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -324,41 +656,28 @@ export default function FinanceView() {
                     <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">A konto %</th>
                     <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Fakturert</th>
                     <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Ordrereserve</th>
+                    <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Oppstartsdato</th>
+                    <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Varighet (dager)</th>
                     <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Fremdrift</th>
                     <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Handling</th>
                   </tr>
                 </thead>
                 <tbody>
                   {groupedProjects.map((group, groupIndex) => (
-                    <React.Fragment key={group.leader?.id || 'unassigned'}>
+                    <React.Fragment key={group.leader.id}>
                       {/* Group header for project leader */}
-                      {group.leader ? (
-                        <tr className={clsx(groupIndex > 0 && 'border-t-4 border-gray-100')}>
-                          <td 
-                            colSpan={8} 
-                            className="px-4 py-3 bg-blue-50"
-                          >
-                            <div className="flex items-center gap-2">
-                              <User size={16} className="text-blue-600" />
-                              <span className="font-semibold text-blue-800">{group.leader.name}</span>
-                              <span className="text-sm text-blue-600">({group.projects.length} prosjekter)</span>
-                            </div>
-                          </td>
-                        </tr>
-                      ) : (
-                        <tr className={clsx(groupIndex > 0 && 'border-t-4 border-gray-100')}>
-                          <td 
-                            colSpan={8} 
-                            className="px-4 py-3 bg-gray-100"
-                          >
-                            <div className="flex items-center gap-2">
-                              <User size={16} className="text-gray-500" />
-                              <span className="font-semibold text-gray-600">Ikke tildelt prosjektleder</span>
-                              <span className="text-sm text-gray-500">({group.projects.length} prosjekter)</span>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
+                      <tr className={clsx(groupIndex > 0 && 'border-t-4 border-gray-100')}>
+                        <td 
+                          colSpan={10} 
+                          className="px-4 py-3 bg-blue-50"
+                        >
+                          <div className="flex items-center gap-2">
+                            <User size={16} className="text-blue-600" />
+                            <span className="font-semibold text-blue-800">{group.leader.name}</span>
+                            <span className="text-sm text-blue-600">({group.projects.length} prosjekter)</span>
+                          </div>
+                        </td>
+                      </tr>
                       {/* Project rows */}
                       {group.projects.map(project => (
                         <tr key={project.id} className="hover:bg-gray-50 border-t border-gray-100">
@@ -530,6 +849,86 @@ export default function FinanceView() {
                           <td className="px-4 py-4 text-right font-medium text-orange-600">
                             {formatCurrency(getProjectFinance(project.id).ordrereserve)}
                           </td>
+                          
+                          {/* Oppstartsdato column */}
+                          <td 
+                            className={clsx(
+                              "px-4 py-4 text-center",
+                              !(editingId === project.id && editField === 'startDate') && "cursor-pointer hover:bg-blue-50"
+                            )}
+                            onClick={() => !(editingId === project.id && editField === 'startDate') && handleEdit(project.id, 'startDate', project.plannedStartDate || '')}
+                          >
+                            {(editingId === project.id && editField === 'startDate') ? (
+                              <div className="flex items-center justify-center gap-2">
+                                <input
+                                  ref={inputRef}
+                                  type="date"
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  onKeyDown={(e) => handleKeyDown(e, project.id)}
+                                  className="px-2 py-1 border border-blue-500 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                />
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleSave(project.id); }}
+                                  className="p-1 text-green-600 hover:bg-green-50 rounded"
+                                >
+                                  <Check size={16} />
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleCancel(); }}
+                                  className="p-1 text-gray-400 hover:bg-gray-100 rounded"
+                                >
+                                  <X size={16} />
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-sm text-gray-900">
+                                {project.plannedStartDate ? formatDateNorwegian(project.plannedStartDate) : '-'}
+                              </span>
+                            )}
+                          </td>
+                          
+                          {/* Varighet (dager) column */}
+                          <td 
+                            className={clsx(
+                              "px-4 py-4 text-center",
+                              !(editingId === project.id && editField === 'duration') && "cursor-pointer hover:bg-blue-50"
+                            )}
+                            onClick={() => !(editingId === project.id && editField === 'duration') && handleEdit(project.id, 'duration', project.durationDays || 0)}
+                          >
+                            {(editingId === project.id && editField === 'duration') ? (
+                              <div className="flex items-center justify-center gap-2">
+                                <input
+                                  ref={inputRef}
+                                  type="number"
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  onKeyDown={(e) => handleKeyDown(e, project.id)}
+                                  onFocus={(e) => e.target.select()}
+                                  min={0}
+                                  className="w-20 px-2 py-1 border border-blue-500 rounded text-sm text-center focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                  placeholder="0"
+                                />
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleSave(project.id); }}
+                                  className="p-1 text-green-600 hover:bg-green-50 rounded"
+                                >
+                                  <Check size={16} />
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleCancel(); }}
+                                  className="p-1 text-gray-400 hover:bg-gray-100 rounded"
+                                >
+                                  <X size={16} />
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-sm text-gray-900">
+                                {project.durationDays ? `${project.durationDays} dager` : '-'}
+                              </span>
+                            )}
+                          </td>
+                          
                           <td className="px-4 py-4">
                             {(() => {
                               const status = projectStatus.get(project.id);
@@ -584,7 +983,7 @@ export default function FinanceView() {
                 </tbody>
               </table>
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* Completed Projects */}
@@ -748,6 +1147,36 @@ export default function FinanceView() {
                   placeholder="0"
                   min={0}
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Oppstartsdato
+                </label>
+                <input
+                  type="date"
+                  value={newProject.plannedStartDate}
+                  onChange={(e) => setNewProject({ ...newProject, plannedStartDate: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Varighet (dager)
+                </label>
+                <input
+                  type="number"
+                  value={newProject.durationDays}
+                  onChange={(e) => setNewProject({ ...newProject, durationDays: e.target.value })}
+                  onFocus={(e) => e.target.select()}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Antall arbeidsdager"
+                  min={0}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Kun arbeidsdager (helger ekskludert)
+                </p>
               </div>
 
               <div>

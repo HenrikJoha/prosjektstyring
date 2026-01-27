@@ -1,8 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import React from 'react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { LogIn, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import clsx from 'clsx';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -11,10 +13,28 @@ export default function Login() {
   
   const { login, isLoading, error } = useAuthStore();
 
+  // Reset loading state on mount if it's stuck
+  React.useEffect(() => {
+    if (isLoading) {
+      const timer = setTimeout(() => {
+        useAuthStore.setState({ isLoading: false });
+      }, 5000); // Reset after 5 seconds if stuck
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username.trim() || !password.trim()) return;
-    await login(username.trim(), password);
+    e.stopPropagation();
+    
+    const trimmedUsername = username.trim();
+    const trimmedPassword = password.trim();
+    
+    if (!trimmedUsername || !trimmedPassword) {
+      return;
+    }
+    
+    await login(trimmedUsername, trimmedPassword);
   };
 
   return (
@@ -86,6 +106,7 @@ export default function Login() {
             type="submit"
             disabled={isLoading || !username.trim() || !password.trim()}
             className="w-full mt-6 py-3 px-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            title={!username.trim() || !password.trim() ? 'Fyll inn brukernavn og passord' : ''}
           >
             {isLoading ? (
               <>

@@ -62,9 +62,9 @@ export const useAuthStore = create<AuthState>()(
           const { data, error } = await supabase
             .from('app_users')
             .select('*')
-            .eq('username', username.toLowerCase())
+            .eq('username', username.toLowerCase().trim())
             .eq('password_hash', passwordHash)
-            .single();
+            .maybeSingle();
           
           if (error || !data) {
             set({ isLoading: false, error: 'Feil brukernavn eller passord' });
@@ -77,7 +77,8 @@ export const useAuthStore = create<AuthState>()(
             error: null 
           });
           return true;
-        } catch {
+        } catch (err) {
+          console.error('Login error:', err);
           set({ isLoading: false, error: 'En feil oppstod under innlogging' });
           return false;
         }

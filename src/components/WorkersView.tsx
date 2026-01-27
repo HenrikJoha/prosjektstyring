@@ -497,7 +497,7 @@ function WorkerRow({
 }: WorkerRowProps) {
   if (isEditing) {
     return (
-      <div className={clsx('p-4 bg-blue-50', indented && 'pl-8')}>
+      <div className="p-4 bg-blue-50">
         <div className="grid gap-4 md:grid-cols-3">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Navn</label>
@@ -561,7 +561,7 @@ function WorkerRow({
   return (
     <div className={clsx(
       'flex items-center justify-between p-4 hover:bg-gray-50 transition-colors',
-      indented && 'pl-8 border-t border-gray-100'
+      indented && 'border-t border-gray-100'
     )}>
       <div className="flex items-center gap-3">
         <div className={clsx(

@@ -32,7 +32,7 @@ export default function Sidebar({ visibleTabs }: SidebarProps) {
   return (
     <>
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex flex-col w-20 bg-white border-r border-gray-200">
+      <aside className="hidden md:flex flex-col w-20 bg-gray-200 border-r border-gray-200">
         <div className="p-4">
           <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center">
             <span className="text-white font-bold text-xl">PS</span>
@@ -79,7 +79,7 @@ export default function Sidebar({ visibleTabs }: SidebarProps) {
           />
           
           {/* Navigation Panel */}
-          <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 rounded-t-2xl shadow-2xl animate-slide-up">
+          <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-gray-200 border-t border-gray-200 z-50 rounded-t-2xl shadow-2xl animate-slide-up">
             <div className="flex justify-around py-4 pb-6">
               {displayTabs.map((tab) => {
                 const Icon = tab.icon;

@@ -134,7 +134,7 @@ export default function ProjectModal({
           {mode === 'select' ? (
             <>
               {/* Sick Leave Section */}
-              <div className="mb-4 p-4 bg-red-50 rounded-xl border border-red-100">
+              <div className="mb-4 p-4 bg-red-50/30 rounded-xl border border-red-100/50">
                 <div className="text-sm font-semibold text-red-800 mb-3">Sykefravær</div>
                 <div className="grid grid-cols-2 gap-2">
                   {sickLeaveProjects.map(project => (

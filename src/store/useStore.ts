@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Worker, Project, ProjectAssignment, DragSelection } from '@/types';
 import { supabase, DbWorker, DbProject, DbProjectAssignment } from '@/lib/supabase';
+import { parseISO, addDays, format, isWeekend } from 'date-fns';
 
 interface AppState {
   // Data
@@ -67,6 +68,8 @@ const dbProjectToProject = (db: DbProject): Project => ({
   projectType: db.project_type,
   isSystem: db.is_system,
   projectLeaderId: db.project_leader_id || undefined,
+  plannedStartDate: db.planned_start_date || undefined,
+  durationDays: db.duration_days || undefined,
   createdAt: db.created_at,
 });
 
@@ -77,6 +80,24 @@ const dbAssignmentToAssignment = (db: DbProjectAssignment): ProjectAssignment =>
   startDate: db.start_date,
   endDate: db.end_date,
 });
+
+// Helper: Calculate end date from start date + duration (excluding weekends)
+function calculateEndDate(startDateString: string, durationDays: number): string {
+  const startDate = parseISO(startDateString);
+  let currentDate = startDate;
+  let workingDaysAdded = 0;
+  
+  while (workingDaysAdded < durationDays) {
+    if (!isWeekend(currentDate)) {
+      workingDaysAdded++;
+    }
+    if (workingDaysAdded < durationDays) {
+      currentDate = addDays(currentDate, 1);
+    }
+  }
+  
+  return format(currentDate, 'yyyy-MM-dd');
+}
 
 export const useStore = create<AppState>()((set, get) => ({
   // Initial state
@@ -248,7 +269,7 @@ export const useStore = create<AppState>()((set, get) => ({
   
   // Project actions
   addProject: async (project) => {
-    const { currentUserWorkerId, isAdmin } = get();
+    const { currentUserWorkerId, isAdmin, addAssignment } = get();
     
     // If project leader is creating a project, auto-assign to them
     let projectLeaderId = project.projectLeaderId || null;
@@ -269,6 +290,8 @@ export const useStore = create<AppState>()((set, get) => ({
         status: project.status,
         project_type: project.projectType || 'regular',
         project_leader_id: projectLeaderId,
+        planned_start_date: project.plannedStartDate || null,
+        duration_days: project.durationDays || null,
       })
       .select()
       .single();
@@ -278,14 +301,30 @@ export const useStore = create<AppState>()((set, get) => ({
       return '';
     }
     
+    const newProject = dbProjectToProject(data);
+    
     set((state) => ({
-      projects: [...state.projects, dbProjectToProject(data)]
+      projects: [...state.projects, newProject]
     }));
+    
+    // Auto-create assignment if project has start date, duration, and project leader
+    if (newProject.plannedStartDate && newProject.durationDays && newProject.projectLeaderId) {
+      const endDate = calculateEndDate(newProject.plannedStartDate, newProject.durationDays);
+      await addAssignment({
+        projectId: newProject.id,
+        workerId: newProject.projectLeaderId,
+        startDate: newProject.plannedStartDate,
+        endDate,
+      });
+    }
     
     return data.id;
   },
   
   updateProject: async (id, updates) => {
+    const { addAssignment, assignments } = get();
+    const currentProject = get().projects.find(p => p.id === id);
+    
     const dbUpdates: Record<string, unknown> = {};
     if (updates.name !== undefined) dbUpdates.name = updates.name;
     if (updates.description !== undefined) dbUpdates.description = updates.description;
@@ -297,6 +336,8 @@ export const useStore = create<AppState>()((set, get) => ({
     if (updates.status !== undefined) dbUpdates.status = updates.status;
     if (updates.projectType !== undefined) dbUpdates.project_type = updates.projectType;
     if (updates.projectLeaderId !== undefined) dbUpdates.project_leader_id = updates.projectLeaderId || null;
+    if (updates.plannedStartDate !== undefined) dbUpdates.planned_start_date = updates.plannedStartDate || null;
+    if (updates.durationDays !== undefined) dbUpdates.duration_days = updates.durationDays || null;
     
     const { error } = await supabase
       .from('projects')
@@ -308,9 +349,37 @@ export const useStore = create<AppState>()((set, get) => ({
       return;
     }
     
+    const updatedProject = { ...currentProject, ...updates } as Project;
+    
     set((state) => ({
-      projects: state.projects.map(p => p.id === id ? { ...p, ...updates } : p)
+      projects: state.projects.map(p => p.id === id ? updatedProject : p)
     }));
+    
+    // Auto-create or update assignment if project has start date, duration, and project leader
+    if (updatedProject.plannedStartDate && updatedProject.durationDays && updatedProject.projectLeaderId) {
+      const endDate = calculateEndDate(updatedProject.plannedStartDate, updatedProject.durationDays);
+      
+      // Check if assignment already exists for this project and project leader
+      const existingAssignment = assignments.find(
+        a => a.projectId === id && a.workerId === updatedProject.projectLeaderId
+      );
+      
+      if (existingAssignment) {
+        // Update existing assignment
+        await get().updateAssignment(existingAssignment.id, {
+          startDate: updatedProject.plannedStartDate,
+          endDate,
+        });
+      } else {
+        // Create new assignment
+        await addAssignment({
+          projectId: id,
+          workerId: updatedProject.projectLeaderId,
+          startDate: updatedProject.plannedStartDate,
+          endDate,
+        });
+      }
+    }
   },
   
   deleteProject: async (id) => {

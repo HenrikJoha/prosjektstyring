@@ -32,7 +32,7 @@ export default function Home() {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-50">
+      <div className="flex h-screen items-center justify-center">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-600">Laster data...</p>
@@ -48,7 +48,7 @@ export default function Home() {
     : ['schedule', 'finance'];
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen">
       <Sidebar visibleTabs={visibleTabs} />
       <div className="flex-1 flex flex-col overflow-hidden md:ml-0">
         {/* Desktop: Fixed header */}
