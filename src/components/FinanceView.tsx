@@ -329,8 +329,8 @@ export default function FinanceView() {
 
         {/* Unassigned Projects Section - Separate box at top */}
         {unassignedProjects.length > 0 && (
-          <div className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden mb-6">
-            <div className="px-6 py-4 border-b border-gray-200 bg-white">
+          <div className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden mb-12">
+            <div className="px-6 py-4 border-b border-gray-200 bg-amber-100">
               <div className="flex items-center gap-2">
                 <User size={18} className="text-amber-700" />
                 <h2 className="text-lg font-semibold text-amber-900">
@@ -655,8 +655,8 @@ export default function FinanceView() {
 
         {/* Active Projects Table - Assigned to project leaders */}
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-8">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Aktive prosjekter</h2>
+          <div className="px-6 py-4 border-b-2 border-blue-300 bg-blue-200">
+            <h2 className="text-xl font-bold text-blue-900">Aktive prosjekter</h2>
           </div>
           
           {groupedProjects.length === 0 && unassignedProjects.length === 0 ? (
