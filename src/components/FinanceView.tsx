@@ -288,10 +288,11 @@ export default function FinanceView() {
   };
 
   const handleAssignLeader = (projectId: string, leaderId: string | null) => {
-    // Pass null explicitly when unassigning - store will handle it correctly
+    // When unassigning (null), pass empty string - store will convert to null in DB
+    // This is type-safe since projectLeaderId is string | undefined
     updateProject(projectId, { 
-      projectLeaderId: leaderId === null ? null : leaderId 
-    } as { projectLeaderId: string | null | undefined });
+      projectLeaderId: leaderId === null ? '' : leaderId 
+    });
     setAssigningLeader(null);
   };
 
