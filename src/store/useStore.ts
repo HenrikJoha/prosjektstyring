@@ -335,7 +335,12 @@ export const useStore = create<AppState>()((set, get) => ({
     if (updates.billingType !== undefined) dbUpdates.billing_type = updates.billingType;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
     if (updates.projectType !== undefined) dbUpdates.project_type = updates.projectType;
-    if (updates.projectLeaderId !== undefined) dbUpdates.project_leader_id = updates.projectLeaderId || null;
+    // Handle projectLeaderId: undefined = don't update, null/empty = clear, string = set
+    if (updates.projectLeaderId !== undefined) {
+      dbUpdates.project_leader_id = updates.projectLeaderId === null || updates.projectLeaderId === '' 
+        ? null 
+        : updates.projectLeaderId;
+    }
     if (updates.plannedStartDate !== undefined) dbUpdates.planned_start_date = updates.plannedStartDate || null;
     if (updates.durationDays !== undefined) dbUpdates.duration_days = updates.durationDays || null;
     
