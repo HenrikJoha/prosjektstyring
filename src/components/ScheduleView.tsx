@@ -490,7 +490,7 @@ export default function ScheduleView() {
                           key={day.dateString}
                           className={clsx(
                             'text-center py-1 text-xs',
-                            isToday && 'bg-gray-300 border-l-2 border-r-2 border-blue-500',
+                            isToday && 'bg-gray-300',
                             day.isHoliday && 'bg-red-200 text-red-800',
                             isLastDayOfWeek && weekIdx < weeks.length - 1 && 'border-r-2 border-gray-300'
                           )}
@@ -530,7 +530,6 @@ export default function ScheduleView() {
                       key={worker.id}
                       className={clsx(
                         'flex',
-                        isFirstInGroup && groupIdx > 0 && 'border-t-2 border-gray-200',
                         isLeader ? 'bg-blue-50/30' : 'bg-gray-200'
                       )}
                       style={{ height: rowHeight }}
@@ -565,10 +564,16 @@ export default function ScheduleView() {
                                   key={day.dateString}
                                   data-date={day.dateString}
                                   className={clsx(
-                                    'calendar-cell border-b border-r border-gray-100 cursor-crosshair',
-                                    isSelected && 'bg-blue-200',
-                                    isToday && !isSelected && 'bg-gray-300 border-l-2 border-r-2 border-blue-500',
-                                    day.isHoliday && !isSelected && 'bg-red-100',
+                                    'calendar-cell cursor-crosshair',
+                                    // Today cells: seamless column
+                                    isToday && !isSelected && 'bg-gray-300 border-r border-gray-300',
+                                    // Regular cells: normal borders
+                                    !isToday && !isSelected && !day.isHoliday && 'border-b border-r border-gray-100',
+                                    // Selected cells
+                                    isSelected && 'bg-blue-200 border-b border-r border-gray-100',
+                                    // Holiday cells
+                                    day.isHoliday && !isSelected && 'bg-red-100 border-b border-r border-gray-100',
+                                    // Week separator
                                     isLastDayOfWeek && weekIdx < weeks.length - 1 && 'border-r-2 border-r-gray-300'
                                   )}
                                   style={{ width: CELL_WIDTH, height: rowHeight }}
