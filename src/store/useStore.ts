@@ -9,39 +9,39 @@ interface AppState {
   projects: Project[];
   assignments: ProjectAssignment[];
   isLoading: boolean;
-  
-  // Role-based filtering
-  currentUserWorkerId: string | null; // The worker ID linked to the current user (for project leaders)
+
+  // Role info (from auth store, passed in on loadData)
+  currentUserWorkerId: string | null;
   isAdmin: boolean;
-  
+
   // UI State
   activeTab: 'schedule' | 'workers' | 'finance';
   dragSelection: DragSelection | null;
   selectedProjectId: string | null;
-  
+
   // Data loading
   loadData: (userWorkerId?: string | null, isAdmin?: boolean) => Promise<void>;
-  
+
   // Worker actions
   addWorker: (worker: Omit<Worker, 'id'>) => Promise<void>;
   updateWorker: (id: string, updates: Partial<Worker>) => Promise<void>;
   deleteWorker: (id: string) => Promise<void>;
-  
+
   // Project actions
   addProject: (project: Omit<Project, 'id' | 'createdAt'>) => Promise<string>;
   updateProject: (id: string, updates: Partial<Project>) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
-  
+
   // Assignment actions
   addAssignment: (assignment: Omit<ProjectAssignment, 'id'>) => Promise<void>;
   updateAssignment: (id: string, updates: Partial<ProjectAssignment>) => Promise<void>;
   deleteAssignment: (id: string) => Promise<void>;
-  
+
   // UI actions
   setActiveTab: (tab: 'schedule' | 'workers' | 'finance') => void;
   setDragSelection: (selection: DragSelection | null) => void;
   setSelectedProjectId: (id: string | null) => void;
-  
+
   // Computed
   getTotalOrdrereserve: () => number;
   getProjectFinance: (projectId: string) => { fakturert: number; ordrereserve: number };
@@ -86,7 +86,7 @@ function calculateEndDate(startDateString: string, durationDays: number): string
   const startDate = parseISO(startDateString);
   let currentDate = startDate;
   let workingDaysAdded = 0;
-  
+
   while (workingDaysAdded < durationDays) {
     if (!isWeekend(currentDate)) {
       workingDaysAdded++;
@@ -95,12 +95,11 @@ function calculateEndDate(startDateString: string, durationDays: number): string
       currentDate = addDays(currentDate, 1);
     }
   }
-  
+
   return format(currentDate, 'yyyy-MM-dd');
 }
 
 export const useStore = create<AppState>()((set, get) => ({
-  // Initial state
   workers: [],
   projects: [],
   assignments: [],
@@ -110,79 +109,21 @@ export const useStore = create<AppState>()((set, get) => ({
   activeTab: 'schedule',
   dragSelection: null,
   selectedProjectId: null,
-  
-  // Load data from Supabase with role-based filtering
+
+  // Load data - RLS handles filtering automatically
   loadData: async (userWorkerId?: string | null, isAdmin: boolean = false) => {
-    set({ isLoading: true, currentUserWorkerId: userWorkerId || null, isAdmin });
-    
-    // Fetch all data first
+    set({ isLoading: true, currentUserWorkerId: userWorkerId ?? null, isAdmin });
+
     const [workersRes, projectsRes, assignmentsRes] = await Promise.all([
       supabase.from('workers').select('*').order('created_at'),
       supabase.from('projects').select('*').order('created_at'),
       supabase.from('project_assignments').select('*').order('created_at'),
     ]);
-    
-    let workers = (workersRes.data || []).map(dbWorkerToWorker);
-    let projects = (projectsRes.data || []).map(dbProjectToProject);
-    let assignments = (assignmentsRes.data || []).map(dbAssignmentToAssignment);
-    
-    // Cleanup: Ensure all project leaders have project_leader_id = null
-    // This fixes any stale data where a project leader still has an old project_leader_id
-    const projectLeadersWithStaleData = workers.filter(
-      w => w.role === 'prosjektleder' && w.projectLeaderId !== undefined
-    );
-    
-    if (projectLeadersWithStaleData.length > 0) {
-      // Fix stale data in database
-      const staleIds = projectLeadersWithStaleData.map(w => w.id);
-      await supabase
-        .from('workers')
-        .update({ project_leader_id: null })
-        .in('id', staleIds)
-        .eq('role', 'prosjektleder');
-      
-      // Also fix in local data
-      workers = workers.map(w => 
-        w.role === 'prosjektleder' ? { ...w, projectLeaderId: undefined } : w
-      );
-    }
-    
-    // If user is a project leader (not admin), filter data
-    if (!isAdmin && userWorkerId) {
-      // Get the project leader's ID
-      const projectLeader = workers.find(w => w.id === userWorkerId);
-      
-      if (projectLeader && projectLeader.role === 'prosjektleder') {
-        // Filter workers: only show the project leader and their CURRENT team members
-        // Important: Only include carpenters (tømrer) who are assigned to this leader
-        // This prevents showing workers who used to work for this leader but are now
-        // project leaders themselves or have been reassigned
-        workers = workers.filter(w => 
-          w.id === userWorkerId || // The project leader themselves
-          (w.role === 'tømrer' && w.projectLeaderId === userWorkerId) // Only carpenters currently under this project leader
-        );
-        
-        const visibleWorkerIds = new Set(workers.map(w => w.id));
-        
-        // Filter assignments: only show assignments for the project leader's team
-        assignments = assignments.filter(a => visibleWorkerIds.has(a.workerId));
-        
-        // Get all project IDs from the team's assignments
-        // This allows seeing projects that are assigned to their calendar,
-        // even if the project belongs to another project leader
-        const projectIdsFromAssignments = new Set(assignments.map(a => a.projectId));
-        
-        // Filter projects: show projects that appear in the team's assignments
-        // Also include system projects (sick leave, vacation) for everyone
-        // Also include projects owned by this leader (even if no assignments yet)
-        projects = projects.filter(p => 
-          projectIdsFromAssignments.has(p.id) || // Projects visible in calendar
-          p.projectLeaderId === userWorkerId || // Projects owned by this leader
-          p.isSystem // System projects (sick leave, vacation)
-        );
-      }
-    }
-    
+
+    const workers = (workersRes.data ?? []).map(dbWorkerToWorker);
+    const projects = (projectsRes.data ?? []).map(dbProjectToProject);
+    const assignments = (assignmentsRes.data ?? []).map(dbAssignmentToAssignment);
+
     set({
       workers,
       projects,
@@ -190,7 +131,7 @@ export const useStore = create<AppState>()((set, get) => ({
       isLoading: false,
     });
   },
-  
+
   // Worker actions
   addWorker: async (worker) => {
     const { data, error } = await supabase
@@ -202,81 +143,71 @@ export const useStore = create<AppState>()((set, get) => ({
       })
       .select()
       .single();
-    
+
     if (error) {
       console.error('Error adding worker:', error);
       return;
     }
-    
+
     set((state) => ({
-      workers: [...state.workers, dbWorkerToWorker(data)]
+      workers: [...state.workers, dbWorkerToWorker(data)],
     }));
   },
-  
+
   updateWorker: async (id, updates) => {
     const dbUpdates: Partial<DbWorker> = {};
     if (updates.name !== undefined) dbUpdates.name = updates.name;
     if (updates.role !== undefined) {
       dbUpdates.role = updates.role;
-      // If role is being changed to prosjektleder, automatically clear project_leader_id
-      // Project leaders cannot have a project leader themselves
       if (updates.role === 'prosjektleder') {
         dbUpdates.project_leader_id = null;
-        updates.projectLeaderId = undefined; // Also update local state
+        updates.projectLeaderId = undefined;
       }
     }
     if (updates.projectLeaderId !== undefined) {
-      // Only set project_leader_id if role is tømrer (carpenter)
-      // If role is prosjektleder, it should always be null
       if (updates.role !== 'prosjektleder') {
         dbUpdates.project_leader_id = updates.projectLeaderId || null;
       } else {
         dbUpdates.project_leader_id = null;
       }
     }
-    
-    const { error } = await supabase
-      .from('workers')
-      .update(dbUpdates)
-      .eq('id', id);
-    
+
+    const { error } = await supabase.from('workers').update(dbUpdates).eq('id', id);
+
     if (error) {
       console.error('Error updating worker:', error);
       return;
     }
-    
+
     set((state) => ({
-      workers: state.workers.map(w => w.id === id ? { ...w, ...updates } : w)
+      workers: state.workers.map((w) => (w.id === id ? { ...w, ...updates } : w)),
     }));
   },
-  
+
   deleteWorker: async (id) => {
-    const { error } = await supabase
-      .from('workers')
-      .delete()
-      .eq('id', id);
-    
+    const { error } = await supabase.from('workers').delete().eq('id', id);
+
     if (error) {
       console.error('Error deleting worker:', error);
       return;
     }
-    
+
     set((state) => ({
-      workers: state.workers.filter(w => w.id !== id),
-      assignments: state.assignments.filter(a => a.workerId !== id)
+      workers: state.workers.filter((w) => w.id !== id),
+      assignments: state.assignments.filter((a) => a.workerId !== id),
     }));
   },
-  
+
   // Project actions
   addProject: async (project) => {
-    const { currentUserWorkerId, isAdmin, addAssignment } = get();
-    
-    // If project leader is creating a project, auto-assign to them
+    const { currentUserWorkerId, isAdmin } = get();
+
+    // Auto-assign to current user if they're a project leader
     let projectLeaderId = project.projectLeaderId || null;
     if (!isAdmin && currentUserWorkerId && !projectLeaderId) {
       projectLeaderId = currentUserWorkerId;
     }
-    
+
     const { data, error } = await supabase
       .from('projects')
       .insert({
@@ -295,36 +226,36 @@ export const useStore = create<AppState>()((set, get) => ({
       })
       .select()
       .single();
-    
+
     if (error) {
       console.error('Error adding project:', error);
       return '';
     }
-    
+
     const newProject = dbProjectToProject(data);
-    
+
     set((state) => ({
-      projects: [...state.projects, newProject]
+      projects: [...state.projects, newProject],
     }));
-    
+
     // Auto-create assignment if project has start date, duration, and project leader
     if (newProject.plannedStartDate && newProject.durationDays && newProject.projectLeaderId) {
       const endDate = calculateEndDate(newProject.plannedStartDate, newProject.durationDays);
-      await addAssignment({
+      await get().addAssignment({
         projectId: newProject.id,
         workerId: newProject.projectLeaderId,
         startDate: newProject.plannedStartDate,
         endDate,
       });
     }
-    
+
     return data.id;
   },
-  
+
   updateProject: async (id, updates) => {
     const { addAssignment, assignments } = get();
-    const currentProject = get().projects.find(p => p.id === id);
-    
+    const currentProject = get().projects.find((p) => p.id === id);
+
     const dbUpdates: Record<string, unknown> = {};
     if (updates.name !== undefined) dbUpdates.name = updates.name;
     if (updates.description !== undefined) dbUpdates.description = updates.description;
@@ -335,48 +266,43 @@ export const useStore = create<AppState>()((set, get) => ({
     if (updates.billingType !== undefined) dbUpdates.billing_type = updates.billingType;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
     if (updates.projectType !== undefined) dbUpdates.project_type = updates.projectType;
-    // Handle projectLeaderId: undefined = don't update, null/empty = clear, string = set
     if (updates.projectLeaderId !== undefined) {
-      dbUpdates.project_leader_id = updates.projectLeaderId === null || updates.projectLeaderId === '' 
-        ? null 
-        : updates.projectLeaderId;
+      dbUpdates.project_leader_id =
+        updates.projectLeaderId === null || updates.projectLeaderId === ''
+          ? null
+          : updates.projectLeaderId;
     }
-    if (updates.plannedStartDate !== undefined) dbUpdates.planned_start_date = updates.plannedStartDate || null;
+    if (updates.plannedStartDate !== undefined)
+      dbUpdates.planned_start_date = updates.plannedStartDate || null;
     if (updates.durationDays !== undefined) dbUpdates.duration_days = updates.durationDays || null;
-    
-    const { error } = await supabase
-      .from('projects')
-      .update(dbUpdates)
-      .eq('id', id);
-    
+
+    const { error } = await supabase.from('projects').update(dbUpdates).eq('id', id);
+
     if (error) {
       console.error('Error updating project:', error);
       return;
     }
-    
+
     const updatedProject = { ...currentProject, ...updates } as Project;
-    
+
     set((state) => ({
-      projects: state.projects.map(p => p.id === id ? updatedProject : p)
+      projects: state.projects.map((p) => (p.id === id ? updatedProject : p)),
     }));
-    
+
     // Auto-create or update assignment if project has start date, duration, and project leader
     if (updatedProject.plannedStartDate && updatedProject.durationDays && updatedProject.projectLeaderId) {
       const endDate = calculateEndDate(updatedProject.plannedStartDate, updatedProject.durationDays);
-      
-      // Check if assignment already exists for this project and project leader
+
       const existingAssignment = assignments.find(
-        a => a.projectId === id && a.workerId === updatedProject.projectLeaderId
+        (a) => a.projectId === id && a.workerId === updatedProject.projectLeaderId
       );
-      
+
       if (existingAssignment) {
-        // Update existing assignment
         await get().updateAssignment(existingAssignment.id, {
           startDate: updatedProject.plannedStartDate,
           endDate,
         });
       } else {
-        // Create new assignment
         await addAssignment({
           projectId: id,
           workerId: updatedProject.projectLeaderId,
@@ -386,24 +312,21 @@ export const useStore = create<AppState>()((set, get) => ({
       }
     }
   },
-  
+
   deleteProject: async (id) => {
-    const { error } = await supabase
-      .from('projects')
-      .delete()
-      .eq('id', id);
-    
+    const { error } = await supabase.from('projects').delete().eq('id', id);
+
     if (error) {
       console.error('Error deleting project:', error);
       return;
     }
-    
+
     set((state) => ({
-      projects: state.projects.filter(p => p.id !== id),
-      assignments: state.assignments.filter(a => a.projectId !== id)
+      projects: state.projects.filter((p) => p.id !== id),
+      assignments: state.assignments.filter((a) => a.projectId !== id),
     }));
   },
-  
+
   // Assignment actions
   addAssignment: async (assignment) => {
     const { data, error } = await supabase
@@ -416,82 +339,74 @@ export const useStore = create<AppState>()((set, get) => ({
       })
       .select()
       .single();
-    
+
     if (error) {
       console.error('Error adding assignment:', error);
       return;
     }
-    
+
     set((state) => ({
-      assignments: [...state.assignments, dbAssignmentToAssignment(data)]
+      assignments: [...state.assignments, dbAssignmentToAssignment(data)],
     }));
   },
-  
+
   updateAssignment: async (id, updates) => {
     const dbUpdates: Record<string, unknown> = {};
     if (updates.projectId !== undefined) dbUpdates.project_id = updates.projectId;
     if (updates.workerId !== undefined) dbUpdates.worker_id = updates.workerId;
     if (updates.startDate !== undefined) dbUpdates.start_date = updates.startDate;
     if (updates.endDate !== undefined) dbUpdates.end_date = updates.endDate;
-    
-    const { error } = await supabase
-      .from('project_assignments')
-      .update(dbUpdates)
-      .eq('id', id);
-    
+
+    const { error } = await supabase.from('project_assignments').update(dbUpdates).eq('id', id);
+
     if (error) {
       console.error('Error updating assignment:', error);
       return;
     }
-    
+
     set((state) => ({
-      assignments: state.assignments.map(a => a.id === id ? { ...a, ...updates } : a)
+      assignments: state.assignments.map((a) => (a.id === id ? { ...a, ...updates } : a)),
     }));
   },
-  
+
   deleteAssignment: async (id) => {
-    const { error } = await supabase
-      .from('project_assignments')
-      .delete()
-      .eq('id', id);
-    
+    const { error } = await supabase.from('project_assignments').delete().eq('id', id);
+
     if (error) {
       console.error('Error deleting assignment:', error);
       return;
     }
-    
+
     set((state) => ({
-      assignments: state.assignments.filter(a => a.id !== id)
+      assignments: state.assignments.filter((a) => a.id !== id),
     }));
   },
-  
+
   // UI actions
   setActiveTab: (tab) => set({ activeTab: tab }),
   setDragSelection: (selection) => set({ dragSelection: selection }),
   setSelectedProjectId: (id) => set({ selectedProjectId: id }),
-  
+
   // Computed
   getProjectFinance: (projectId) => {
-    const project = get().projects.find(p => p.id === projectId);
+    const project = get().projects.find((p) => p.id === projectId);
     if (!project) return { fakturert: 0, ordrereserve: 0 };
-    
+
     if (project.billingType === 'timer_materiell') {
-      // Timer og materiell: fakturert is manually entered
       const fakturert = project.fakturert;
       const ordrereserve = Math.max(0, project.amount - fakturert);
       return { fakturert, ordrereserve };
     } else {
-      // Tilbud: fakturert is calculated from a konto percent
       const fakturert = (project.amount * project.aKontoPercent) / 100;
       const ordrereserve = project.amount - fakturert;
       return { fakturert, ordrereserve };
     }
   },
-  
+
   getTotalOrdrereserve: () => {
     const { projects } = get();
     return projects
-      .filter(p => p.status === 'active' && p.projectType === 'regular')
+      .filter((p) => p.status === 'active' && p.projectType === 'regular')
       .reduce((total, project) => {
         if (project.billingType === 'timer_materiell') {
           return total + Math.max(0, project.amount - project.fakturert);

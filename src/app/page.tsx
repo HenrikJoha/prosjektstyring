@@ -16,7 +16,13 @@ export default function Home() {
   const loadData = useStore((state) => state.loadData);
   
   const user = useAuthStore((state) => state.user);
+  const initAuth = useAuthStore((state) => state.initAuth);
   const isAdmin = user?.role === 'admin';
+
+  // Initialize auth on mount (check for existing Supabase Auth session)
+  useEffect(() => {
+    initAuth();
+  }, [initAuth]);
 
   // Load data when user logs in
   useEffect(() => {

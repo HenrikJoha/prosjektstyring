@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { supabase, DbAppUser } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
+
+const EMAIL_DOMAIN = 'prosjektstyring.internal';
 
 export interface AppUser {
   id: string;
@@ -14,37 +16,27 @@ interface AuthState {
   user: AppUser | null;
   isLoading: boolean;
   error: string | null;
-  
+
   // Actions
   login: (username: string, password: string) => Promise<boolean>;
-  logout: () => void;
+  logout: () => Promise<void>;
   updateProfile: (updates: { profileColor?: string }) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
-  
+
   // Admin actions
-  createUser: (username: string, password: string, role: 'admin' | 'prosjektleder', workerId?: string) => Promise<boolean>;
+  createUser: (
+    username: string,
+    password: string,
+    role: 'admin' | 'prosjektleder',
+    workerId?: string
+  ) => Promise<boolean>;
   deleteUser: (userId: string) => Promise<boolean>;
   getUsers: () => Promise<AppUser[]>;
   linkUserToWorker: (userId: string, workerId: string) => Promise<boolean>;
+
+  // Session management
+  initAuth: () => Promise<void>;
 }
-
-// Simple hash function for demo purposes
-// In production, use bcrypt on the server side
-const simpleHash = async (password: string): Promise<string> => {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + 'prosjektstyring_salt');
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-};
-
-const dbUserToAppUser = (db: DbAppUser): AppUser => ({
-  id: db.id,
-  username: db.username,
-  role: db.role,
-  workerId: db.worker_id,
-  profileColor: db.profile_color,
-});
 
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -53,28 +45,121 @@ export const useAuthStore = create<AuthState>()(
       isLoading: false,
       error: null,
 
+      initAuth: async () => {
+        // Check if there's an existing Supabase Auth session
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          // Fetch app_users data
+          const { data: appUser } = await supabase
+            .from('app_users')
+            .select('id, username, role, worker_id, profile_color')
+            .eq('auth_user_id', session.user.id)
+            .maybeSingle();
+
+          if (appUser) {
+            set({
+              user: {
+                id: appUser.id,
+                username: appUser.username,
+                role: appUser.role,
+                workerId: appUser.worker_id ?? null,
+                profileColor: appUser.profile_color,
+              },
+            });
+          }
+        }
+
+        // Listen for auth state changes
+        supabase.auth.onAuthStateChange(async (event, session) => {
+          if (event === 'SIGNED_OUT' || !session) {
+            set({ user: null });
+          } else if (event === 'SIGNED_IN' && session?.user) {
+            const { data: appUser } = await supabase
+              .from('app_users')
+              .select('id, username, role, worker_id, profile_color')
+              .eq('auth_user_id', session.user.id)
+              .maybeSingle();
+
+            if (appUser) {
+              set({
+                user: {
+                  id: appUser.id,
+                  username: appUser.username,
+                  role: appUser.role,
+                  workerId: appUser.worker_id ?? null,
+                  profileColor: appUser.profile_color,
+                },
+              });
+            }
+          }
+        });
+      },
+
       login: async (username: string, password: string) => {
         set({ isLoading: true, error: null });
-        
+        const email = `${username.toLowerCase().trim()}@${EMAIL_DOMAIN}`;
+
         try {
-          const passwordHash = await simpleHash(password);
-          
-          const { data, error } = await supabase
-            .from('app_users')
-            .select('*')
-            .eq('username', username.toLowerCase().trim())
-            .eq('password_hash', passwordHash)
-            .maybeSingle();
-          
-          if (error || !data) {
-            set({ isLoading: false, error: 'Feil brukernavn eller passord' });
+          // Try Supabase Auth sign-in first
+          const { data, error } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+          });
+
+          if (error) {
+            // If sign-in failed, try to migrate the user
+            const migrateRes = await fetch('/api/auth/migrate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ username: username.trim(), password }),
+            });
+
+            if (!migrateRes.ok) {
+              const err = await migrateRes.json();
+              set({ isLoading: false, error: err.error || 'Feil brukernavn eller passord' });
+              return false;
+            }
+
+            // Migration successful, now sign in
+            const { data: retryData, error: retryError } = await supabase.auth.signInWithPassword({
+              email,
+              password,
+            });
+
+            if (retryError || !retryData.user) {
+              set({ isLoading: false, error: 'Kunne ikke logge inn etter migrering' });
+              return false;
+            }
+          }
+
+          // Fetch app_users data
+          const authUser = data?.user ?? (await supabase.auth.getUser()).data.user;
+          if (!authUser) {
+            set({ isLoading: false, error: 'Kunne ikke hente brukerdata' });
             return false;
           }
-          
-          set({ 
-            user: dbUserToAppUser(data),
+
+          const { data: appUser, error: appError } = await supabase
+            .from('app_users')
+            .select('id, username, role, worker_id, profile_color')
+            .eq('auth_user_id', authUser.id)
+            .maybeSingle();
+
+          if (appError || !appUser) {
+            set({ isLoading: false, error: 'Brukerdata ikke funnet' });
+            return false;
+          }
+
+          set({
+            user: {
+              id: appUser.id,
+              username: appUser.username,
+              role: appUser.role,
+              workerId: appUser.worker_id ?? null,
+              profileColor: appUser.profile_color,
+            },
             isLoading: false,
-            error: null 
+            error: null,
           });
           return true;
         } catch (err) {
@@ -84,7 +169,8 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      logout: () => {
+      logout: async () => {
+        await supabase.auth.signOut();
         set({ user: null, error: null });
       },
 
@@ -92,84 +178,49 @@ export const useAuthStore = create<AuthState>()(
         const { user } = get();
         if (!user) return;
 
-        const dbUpdates: Partial<DbAppUser> = {};
-        if (updates.profileColor) dbUpdates.profile_color = updates.profileColor;
-
         const { error } = await supabase
           .from('app_users')
-          .update(dbUpdates)
+          .update({ profile_color: updates.profileColor })
           .eq('id', user.id);
 
         if (!error) {
-          set({
-            user: { ...user, ...updates }
-          });
+          set({ user: { ...user, ...updates } });
         }
       },
 
-      changePassword: async (currentPassword: string, newPassword: string) => {
-        const { user } = get();
-        if (!user) return false;
+      changePassword: async (_currentPassword: string, newPassword: string) => {
+        // With Supabase Auth, we use updateUser to change password
+        const { error } = await supabase.auth.updateUser({ password: newPassword });
 
-        try {
-          const currentHash = await simpleHash(currentPassword);
-          const newHash = await simpleHash(newPassword);
-
-          // Verify current password
-          const { data: existingUser } = await supabase
-            .from('app_users')
-            .select('id')
-            .eq('id', user.id)
-            .eq('password_hash', currentHash)
-            .single();
-
-          if (!existingUser) {
-            set({ error: 'Nåværende passord er feil' });
-            return false;
-          }
-
-          // Update password
-          const { error } = await supabase
-            .from('app_users')
-            .update({ password_hash: newHash })
-            .eq('id', user.id);
-
-          if (error) {
-            set({ error: 'Kunne ikke endre passord' });
-            return false;
-          }
-
-          set({ error: null });
-          return true;
-        } catch {
-          set({ error: 'En feil oppstod' });
+        if (error) {
+          set({ error: 'Kunne ikke endre passord' });
           return false;
         }
+
+        set({ error: null });
+        return true;
       },
 
-      // Admin actions
-      createUser: async (username: string, password: string, role: 'admin' | 'prosjektleder', workerId?: string) => {
+      createUser: async (
+        username: string,
+        password: string,
+        role: 'admin' | 'prosjektleder',
+        workerId?: string
+      ) => {
         const { user } = get();
         if (!user || user.role !== 'admin') return false;
 
         try {
-          const passwordHash = await simpleHash(password);
-          
-          const { error } = await supabase
-            .from('app_users')
-            .insert({
-              username: username.toLowerCase(),
-              password_hash: passwordHash,
-              role,
-              worker_id: workerId || null,
-            });
+          // Call API to create user (needs service role for Supabase Auth admin)
+          const res = await fetch('/api/admin/create-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password, role, workerId }),
+          });
 
-          if (error) {
-            if (error.code === '23505') {
-              set({ error: 'Brukernavn er allerede i bruk' });
-            } else {
-              set({ error: 'Kunne ikke opprette bruker' });
-            }
+          if (!res.ok) {
+            const err = await res.json();
+            set({ error: err.error || 'Kunne ikke opprette bruker' });
             return false;
           }
 
@@ -183,33 +234,44 @@ export const useAuthStore = create<AuthState>()(
       deleteUser: async (userId: string) => {
         const { user } = get();
         if (!user || user.role !== 'admin') return false;
-
-        // Prevent deleting yourself
         if (userId === user.id) {
           set({ error: 'Du kan ikke slette din egen bruker' });
           return false;
         }
 
-        const { error } = await supabase
-          .from('app_users')
-          .delete()
-          .eq('id', userId);
+        try {
+          const res = await fetch('/api/admin/delete-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId }),
+          });
 
-        if (error) {
-          set({ error: 'Kunne ikke slette bruker' });
+          if (!res.ok) {
+            const err = await res.json();
+            set({ error: err.error || 'Kunne ikke slette bruker' });
+            return false;
+          }
+
+          return true;
+        } catch {
+          set({ error: 'En feil oppstod' });
           return false;
         }
-
-        return true;
       },
 
       getUsers: async () => {
         const { data } = await supabase
           .from('app_users')
-          .select('*')
+          .select('id, username, role, worker_id, profile_color')
           .order('username');
 
-        return (data || []).map(dbUserToAppUser);
+        return (data ?? []).map((u) => ({
+          id: u.id,
+          username: u.username,
+          role: u.role,
+          workerId: u.worker_id ?? null,
+          profileColor: u.profile_color,
+        }));
       },
 
       linkUserToWorker: async (userId: string, workerId: string) => {
