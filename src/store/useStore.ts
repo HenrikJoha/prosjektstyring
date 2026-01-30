@@ -110,7 +110,7 @@ export const useStore = create<AppState>()((set, get) => ({
   dragSelection: null,
   selectedProjectId: null,
 
-  // Load data - RLS handles filtering automatically
+  // Load data - RLS filters at DB; we also filter client-side for project leaders (defense in depth)
   loadData: async (userWorkerId?: string | null, isAdmin: boolean = false) => {
     set({ isLoading: true, currentUserWorkerId: userWorkerId ?? null, isAdmin });
 
@@ -120,9 +120,27 @@ export const useStore = create<AppState>()((set, get) => ({
       supabase.from('project_assignments').select('*').order('created_at'),
     ]);
 
-    const workers = (workersRes.data ?? []).map(dbWorkerToWorker);
-    const projects = (projectsRes.data ?? []).map(dbProjectToProject);
-    const assignments = (assignmentsRes.data ?? []).map(dbAssignmentToAssignment);
+    let workers = (workersRes.data ?? []).map(dbWorkerToWorker);
+    let projects = (projectsRes.data ?? []).map(dbProjectToProject);
+    let assignments = (assignmentsRes.data ?? []).map(dbAssignmentToAssignment);
+
+    // Project leaders: only show their own workers, projects, and assignments (safety net if RLS or role is wrong)
+    if (!isAdmin && userWorkerId) {
+      const myWorkerId = userWorkerId;
+      workers = workers.filter(
+        (w) =>
+          w.id === myWorkerId ||
+          (w.role === 'tømrer' && w.projectLeaderId === myWorkerId)
+      );
+      const visibleWorkerIds = new Set(workers.map((w) => w.id));
+      assignments = assignments.filter((a) => visibleWorkerIds.has(a.workerId));
+      projects = projects.filter(
+        (p) =>
+          p.isSystem ||
+          p.projectLeaderId === myWorkerId ||
+          assignments.some((a) => a.projectId === p.id)
+      );
+    }
 
     set({
       workers,
