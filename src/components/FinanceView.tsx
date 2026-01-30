@@ -13,11 +13,12 @@ import EditProjectModal from './EditProjectModal';
 interface LeaderDropdownProps {
   buttonRef: HTMLButtonElement | null;
   leaders: Worker[];
-  onSelect: (leaderId: string) => void;
+  onSelect: (leaderId: string | null) => void;
   onClose: () => void;
+  showUnassign?: boolean;
 }
 
-function LeaderDropdown({ buttonRef, leaders, onSelect, onClose }: LeaderDropdownProps) {
+function LeaderDropdown({ buttonRef, leaders, onSelect, onClose, showUnassign = true }: LeaderDropdownProps) {
   const [position, setPosition] = useState({ top: 0, left: 0, showAbove: false });
   
   useEffect(() => {
@@ -25,7 +26,8 @@ function LeaderDropdown({ buttonRef, leaders, onSelect, onClose }: LeaderDropdow
     
     const updatePosition = () => {
       const rect = buttonRef.getBoundingClientRect();
-      const dropdownHeight = Math.min(leaders.length * 40 + 8, 200); // Estimate height
+      const itemCount = leaders.length + (showUnassign ? 1 : 0);
+      const dropdownHeight = Math.min(itemCount * 40 + 8, 200); // Estimate height
       const spaceBelow = window.innerHeight - rect.bottom;
       const showAbove = spaceBelow < dropdownHeight + 10;
       
@@ -44,7 +46,7 @@ function LeaderDropdown({ buttonRef, leaders, onSelect, onClose }: LeaderDropdow
       window.removeEventListener('scroll', updatePosition, true);
       window.removeEventListener('resize', updatePosition);
     };
-  }, [buttonRef, leaders.length]);
+  }, [buttonRef, leaders.length, showUnassign]);
   
   if (typeof window === 'undefined') return null;
   
@@ -60,6 +62,17 @@ function LeaderDropdown({ buttonRef, leaders, onSelect, onClose }: LeaderDropdow
         className="fixed z-50 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[200px] max-h-[200px] overflow-y-auto"
         style={{ top: position.top, left: position.left }}
       >
+        {showUnassign && (
+          <>
+            <button
+              onClick={() => onSelect(null)}
+              className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-gray-600 border-b border-gray-200"
+            >
+              <X size={14} className="text-gray-400" />
+              Ikke tildelt
+            </button>
+          </>
+        )}
         {leaders.map(l => (
           <button
             key={l.id}
@@ -274,8 +287,12 @@ export default function FinanceView() {
     }
   };
 
-  const handleAssignLeader = (projectId: string, leaderId: string) => {
-    updateProject(projectId, { projectLeaderId: leaderId });
+  const handleAssignLeader = (projectId: string, leaderId: string | null) => {
+    // When unassigning (null), pass empty string - store will convert to null in DB
+    // This is type-safe since projectLeaderId is string | undefined
+    updateProject(projectId, { 
+      projectLeaderId: leaderId === null ? '' : leaderId 
+    });
     setAssigningLeader(null);
   };
 
@@ -316,8 +333,8 @@ export default function FinanceView() {
 
         {/* Unassigned Projects Section - Separate box at top */}
         {unassignedProjects.length > 0 && (
-          <div className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden mb-6">
-            <div className="px-6 py-4 border-b border-gray-200 bg-white">
+          <div className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden mb-12">
+            <div className="px-6 py-4 border-b border-gray-200 bg-amber-100">
               <div className="flex items-center gap-2">
                 <User size={18} className="text-amber-700" />
                 <h2 className="text-lg font-semibold text-amber-900">
@@ -343,7 +360,14 @@ export default function FinanceView() {
                 </thead>
                 <tbody>
                   {unassignedProjects.map(project => (
-                    <tr key={project.id} className="hover:bg-gray-50 border-t border-gray-100">
+                    <tr 
+                      key={project.id} 
+                      className={clsx(
+                        "hover:bg-gray-50 border-t border-gray-100",
+                        project.billingType === 'tilbud' && 'bg-gray-100',
+                        project.billingType === 'timer_materiell' && 'bg-white'
+                      )}
+                    >
                       <td className="px-4 py-4">
                         <button
                           onClick={(e) => handleOpenLeaderDropdown(project.id, e.currentTarget)}
@@ -635,8 +659,8 @@ export default function FinanceView() {
 
         {/* Active Projects Table - Assigned to project leaders */}
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-8">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Aktive prosjekter</h2>
+          <div className="px-6 py-4 border-b-2 border-blue-300 bg-blue-200">
+            <h2 className="text-xl font-bold text-blue-900">Aktive prosjekter</h2>
           </div>
           
           {groupedProjects.length === 0 && unassignedProjects.length === 0 ? (
@@ -666,21 +690,28 @@ export default function FinanceView() {
                   {groupedProjects.map((group, groupIndex) => (
                     <React.Fragment key={group.leader.id}>
                       {/* Group header for project leader */}
-                      <tr className={clsx(groupIndex > 0 && 'border-t-4 border-gray-100')}>
+                      <tr className={clsx(groupIndex > 0 && 'border-t-4 border-gray-300')}>
                         <td 
                           colSpan={10} 
-                          className="px-4 py-3 bg-blue-50"
+                          className="px-4 py-3 bg-gray-300 border-b-2 border-gray-400"
                         >
                           <div className="flex items-center gap-2">
-                            <User size={16} className="text-blue-600" />
-                            <span className="font-semibold text-blue-800">{group.leader.name}</span>
-                            <span className="text-sm text-blue-600">({group.projects.length} prosjekter)</span>
+                            <User size={18} className="text-gray-700" />
+                            <span className="font-bold text-gray-900 text-base">{group.leader.name}</span>
+                            <span className="text-sm font-medium text-gray-700">({group.projects.length} prosjekter)</span>
                           </div>
                         </td>
                       </tr>
                       {/* Project rows */}
                       {group.projects.map(project => (
-                        <tr key={project.id} className="hover:bg-gray-50 border-t border-gray-100">
+                        <tr 
+                          key={project.id} 
+                          className={clsx(
+                            "hover:bg-gray-50 border-t border-gray-100",
+                            project.billingType === 'tilbud' && 'bg-gray-100',
+                            project.billingType === 'timer_materiell' && 'bg-white'
+                          )}
+                        >
                           <td className="px-4 py-4">
                             <button
                               onClick={(e) => handleOpenLeaderDropdown(project.id, e.currentTarget)}
@@ -1232,6 +1263,7 @@ export default function FinanceView() {
           leaders={projectLeaders}
           onSelect={(leaderId) => handleAssignLeader(assigningLeader.projectId, leaderId)}
           onClose={() => setAssigningLeader(null)}
+          showUnassign={true}
         />
       )}
 

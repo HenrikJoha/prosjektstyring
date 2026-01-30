@@ -68,7 +68,7 @@ export default function Header() {
                       className="fixed inset-0 z-40"
                       onClick={() => setShowUserMenu(false)}
                     />
-                    <div className="absolute right-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-50 py-1">
+                    <div className="absolute left-0 md:left-auto md:right-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-50 py-1">
                       <div className="px-4 py-3 border-b border-gray-100">
                         <div className="font-medium text-gray-900">{user.username}</div>
                         <div className="text-sm text-gray-500 capitalize">
