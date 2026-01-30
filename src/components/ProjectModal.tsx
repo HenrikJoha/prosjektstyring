@@ -7,7 +7,7 @@ import { X, Plus, Check, User } from 'lucide-react';
 import clsx from 'clsx';
 
 const PROJECT_COLORS = [
-  '#EF4444', // Red
+  // Red (#EF4444) reserved for sick days only
   '#F97316', // Orange
   '#F59E0B', // Amber
   '#EAB308', // Yellow

@@ -162,6 +162,60 @@ export function formatDateNorwegian(dateString: string): string {
   return format(date, 'd. MMM yyyy', { locale: nb });
 }
 
+/**
+ * Subtract exclusion ranges from [rangeStart, rangeEnd] and return remaining segments.
+ * Used to split assignment bars when system projects (holiday/sick) occupy days in between.
+ */
+export function subtractDateRanges(
+  rangeStart: string,
+  rangeEnd: string,
+  exclusions: { start: string; end: string }[]
+): { start: string; end: string }[] {
+  let start = parseISO(rangeStart);
+  const end = parseISO(rangeEnd);
+  if (start > end) return [];
+
+  // Sort exclusions by start, merge overlapping
+  const sorted = [...exclusions]
+    .map((e) => ({ start: parseISO(e.start), end: parseISO(e.end) }))
+    .filter((e) => e.start <= end && e.end >= start)
+    .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+  const merged: { start: Date; end: Date }[] = [];
+  const rangeStartDate = start;
+  const rangeEndDate = end;
+  for (const hole of sorted) {
+    const s = hole.start < rangeStartDate ? rangeStartDate : hole.start;
+    const e = hole.end > rangeEndDate ? rangeEndDate : hole.end;
+    if (merged.length > 0 && s.getTime() <= addDays(merged[merged.length - 1].end, 1).getTime()) {
+      const last = merged[merged.length - 1];
+      if (e > last.end) last.end = e;
+    } else {
+      merged.push({ start: s, end: e });
+    }
+  }
+
+  const segments: { start: string; end: string }[] = [];
+  let current = rangeStartDate;
+  for (const hole of merged) {
+    if (current < hole.start) {
+      segments.push({
+        start: format(current, 'yyyy-MM-dd'),
+        end: format(addDays(hole.start, -1), 'yyyy-MM-dd'),
+      });
+    }
+    current = addDays(hole.end, 1);
+    if (current > rangeEndDate) break;
+  }
+  if (current <= rangeEndDate) {
+    segments.push({
+      start: format(current, 'yyyy-MM-dd'),
+      end: format(rangeEndDate, 'yyyy-MM-dd'),
+    });
+  }
+  return segments;
+}
+
 export { 
   addDays, 
   parseISO, 

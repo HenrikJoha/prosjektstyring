@@ -12,12 +12,23 @@ import EditProjectModal from './EditProjectModal';
 interface AssignmentBarProps {
   assignment: ProjectAssignment;
   project: Project;
+  /** Segment range (when bar is split by system project); defaults to assignment dates. */
+  segmentStartDate?: string;
+  segmentEndDate?: string;
+  /** Other segments from same assignment (for split-on-edit). */
+  otherSegmentsFromSameAssignment?: { startDate: string; endDate: string }[];
   style: { left: number; width: number };
   allDays: DayData[];
   cellWidth: number;
   rowHeight: number;
   lane: number;
   totalLanes: number;
+  /** When true (holiday/sick), bar drawn on same line(s) as project bars being split. */
+  isSystemBar?: boolean;
+  /** When isSystemBar: first lane (0-based) so bar aligns with project bars. */
+  systemBarLaneStart?: number;
+  /** When isSystemBar: number of lanes to span. */
+  systemBarLaneCount?: number;
 }
 
 const DRAG_THRESHOLD = 5;
@@ -26,14 +37,22 @@ const TOUCH_HOLD_DELAY = 500; // 500ms hold before drag activates on mobile
 export default function AssignmentBar({
   assignment,
   project,
+  segmentStartDate,
+  segmentEndDate,
+  otherSegmentsFromSameAssignment = [],
   style,
   allDays,
   cellWidth,
   rowHeight,
   lane,
   totalLanes,
+  isSystemBar = false,
+  systemBarLaneStart = 0,
+  systemBarLaneCount = 1,
 }: AssignmentBarProps) {
-  const { updateAssignment } = useStore();
+  const { updateAssignment, updateAssignmentAndSplit } = useStore();
+  const effectiveStart = segmentStartDate ?? assignment.startDate;
+  const effectiveEnd = segmentEndDate ?? assignment.endDate;
   const [showEditModal, setShowEditModal] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
 
@@ -72,12 +91,12 @@ export default function AssignmentBar({
   // Get container element
   const getContainer = useCallback(() => barRef.current?.parentElement, []);
 
-  // Calculate bar duration
+  // Calculate bar duration (from segment range)
   const getBarDuration = useCallback(() => {
-    const startIdx = allDays.findIndex(d => d.dateString === assignment.startDate);
-    const endIdx = allDays.findIndex(d => d.dateString === assignment.endDate);
+    const startIdx = allDays.findIndex(d => d.dateString === effectiveStart);
+    const endIdx = allDays.findIndex(d => d.dateString === effectiveEnd);
     return endIdx >= 0 && startIdx >= 0 ? endIdx - startIdx + 1 : Math.round(style.width / cellWidth);
-  }, [allDays, assignment, style.width, cellWidth]);
+  }, [allDays, effectiveStart, effectiveEnd, style.width, cellWidth]);
 
   // Handle move/resize logic
   const handleDragMove = useCallback((clientX: number) => {
@@ -101,22 +120,34 @@ export default function AssignmentBar({
         if (startIdx >= 0 && endIdx < allDays.length) {
           const endDate = allDays[endIdx]?.dateString;
           if (endDate) {
-            updateAssignment(assignment.id, { startDate: newStartDate, endDate });
+            if (otherSegmentsFromSameAssignment.length > 0) {
+              updateAssignmentAndSplit(assignment.id, newStartDate, endDate, otherSegmentsFromSameAssignment);
+            } else {
+              updateAssignment(assignment.id, { startDate: newStartDate, endDate });
+            }
           }
         }
       }
     } else if (dragStateRef.current.type === 'resize-left') {
       const newStartDate = getDateFromPosition(relativeX);
-      if (newStartDate && newStartDate <= assignment.endDate) {
-        updateAssignment(assignment.id, { startDate: newStartDate });
+      if (newStartDate && newStartDate <= effectiveEnd) {
+        if (otherSegmentsFromSameAssignment.length > 0) {
+          updateAssignmentAndSplit(assignment.id, newStartDate, effectiveEnd, otherSegmentsFromSameAssignment);
+        } else {
+          updateAssignment(assignment.id, { startDate: newStartDate });
+        }
       }
     } else if (dragStateRef.current.type === 'resize-right') {
       const newEndDate = getDateFromPosition(relativeX);
-      if (newEndDate && newEndDate >= assignment.startDate) {
-        updateAssignment(assignment.id, { endDate: newEndDate });
+      if (newEndDate && newEndDate >= effectiveStart) {
+        if (otherSegmentsFromSameAssignment.length > 0) {
+          updateAssignmentAndSplit(assignment.id, effectiveStart, newEndDate, otherSegmentsFromSameAssignment);
+        } else {
+          updateAssignment(assignment.id, { endDate: newEndDate });
+        }
       }
     }
-  }, [getContainer, getDateFromPosition, allDays, assignment, updateAssignment]);
+  }, [getContainer, getDateFromPosition, allDays, assignment, effectiveStart, effectiveEnd, otherSegmentsFromSameAssignment, updateAssignment, updateAssignmentAndSplit]);
 
   // Clear all drag state and check if confirmation is needed
   const clearDragState = useCallback((skipConfirmation: boolean = false) => {
@@ -124,9 +155,9 @@ export default function AssignmentBar({
     const hadOriginalDates = originalDatesRef.current;
     const hadDragState = dragStateRef.current !== null; // Check if drag was ever initiated
     
-    // Store current dates before clearing state
-    const currentStartDate = assignment.startDate;
-    const currentEndDate = assignment.endDate;
+    // Store current dates before clearing state (segment range)
+    const currentStartDate = effectiveStart;
+    const currentEndDate = effectiveEnd;
     
     dragStateRef.current = null;
     touchStartPosRef.current = null;
@@ -160,7 +191,7 @@ export default function AssignmentBar({
       // If we had original dates but no drag was active, clear them
       originalDatesRef.current = null;
     }
-  }, [isDragging, isResizing, assignment.startDate, assignment.endDate]);
+  }, [isDragging, isResizing, effectiveStart, effectiveEnd]);
   
   // Handle confirmation
   const handleConfirmMove = useCallback(() => {
@@ -169,7 +200,7 @@ export default function AssignmentBar({
     originalDatesRef.current = null;
   }, []);
   
-  // Handle cancel - revert to original dates
+  // Handle cancel - revert this assignment to original segment dates
   const handleCancelMove = useCallback(() => {
     if (originalDatesRef.current) {
       updateAssignment(assignment.id, {
@@ -193,8 +224,8 @@ export default function AssignmentBar({
     
     // Store original dates for potential revert
     originalDatesRef.current = {
-      startDate: assignment.startDate,
-      endDate: assignment.endDate,
+      startDate: effectiveStart,
+      endDate: effectiveEnd,
     };
     
     dragStateRef.current = {
@@ -210,7 +241,7 @@ export default function AssignmentBar({
     } else {
       setIsResizing(type === 'resize-left' ? 'left' : 'right');
     }
-  }, [style.left, getBarDuration, assignment.startDate, assignment.endDate]);
+  }, [style.left, getBarDuration, effectiveStart, effectiveEnd]);
 
   // Global mouse move/up handlers
   useEffect(() => {
@@ -246,8 +277,8 @@ export default function AssignmentBar({
     // ALWAYS store original dates immediately when touch starts
     // This ensures confirmation will work even if drag activates unexpectedly
     originalDatesRef.current = {
-      startDate: assignment.startDate,
-      endDate: assignment.endDate,
+      startDate: effectiveStart,
+      endDate: effectiveEnd,
     };
 
     // For resize, start immediately
@@ -289,7 +320,7 @@ export default function AssignmentBar({
       // Vibrate to give feedback
       if (navigator.vibrate) navigator.vibrate(50);
     }, TOUCH_HOLD_DELAY);
-  }, [style.left, getBarDuration, assignment.startDate, assignment.endDate]);
+  }, [style.left, getBarDuration, effectiveStart, effectiveEnd]);
 
   // Global touch move/end handlers - attach immediately when touch pending or active
   useEffect(() => {
@@ -368,14 +399,19 @@ export default function AssignmentBar({
     return luminance > 0.5 ? '#000000' : '#ffffff';
   };
 
-  const textColor = getContrastColor(project.color);
+  // Red reserved for sick days so they're instantly recognizable
+  const barColor = project.projectType === 'sick_leave' ? '#EF4444' : project.color;
+  const textColor = getContrastColor(barColor);
 
   const padding = 4;
   const availableHeight = rowHeight - (padding * 2);
-  const barHeight = totalLanes > 1
-    ? (availableHeight / totalLanes) - 2
-    : availableHeight - 8;
-  const barTop = padding + (lane * (availableHeight / totalLanes)) + (totalLanes > 1 ? 1 : 4);
+  const singleLaneHeight = totalLanes > 1 ? (availableHeight / totalLanes) - 2 : availableHeight - 8;
+  const barHeight = isSystemBar
+    ? systemBarLaneCount * singleLaneHeight + (systemBarLaneCount > 1 ? (systemBarLaneCount - 1) * 2 : 0)
+    : singleLaneHeight;
+  const barTop = isSystemBar
+    ? padding + (systemBarLaneStart * (availableHeight / totalLanes)) + (totalLanes > 1 ? 1 : 4)
+    : padding + (lane * (availableHeight / totalLanes)) + (totalLanes > 1 ? 1 : 4);
 
   return (
     <>
@@ -391,7 +427,7 @@ export default function AssignmentBar({
           width: style.width,
           top: barTop,
           height: barHeight,
-          backgroundColor: project.color,
+          backgroundColor: barColor,
           color: textColor,
           cursor: isDragging ? 'move' : 'pointer',
           touchAction: touchHoldActive ? 'none' : 'auto',

@@ -35,6 +35,13 @@ interface AppState {
   // Assignment actions
   addAssignment: (assignment: Omit<ProjectAssignment, 'id'>) => Promise<void>;
   updateAssignment: (id: string, updates: Partial<ProjectAssignment>) => Promise<void>;
+  /** Update one segment and materialize other segments (when splitting a bar by system project). */
+  updateAssignmentAndSplit: (
+    id: string,
+    newStartDate: string,
+    newEndDate: string,
+    otherSegments: { startDate: string; endDate: string }[]
+  ) => Promise<void>;
   deleteAssignment: (id: string) => Promise<void>;
 
   // UI actions
@@ -55,11 +62,16 @@ const dbWorkerToWorker = (db: DbWorker): Worker => ({
   projectLeaderId: db.project_leader_id || undefined,
 });
 
+// Red is reserved for sick days; migrate existing red regular projects to orange
+const SICK_DAY_RED = '#EF4444';
+const REPLACEMENT_FOR_RED = '#F97316';
+
 const dbProjectToProject = (db: DbProject): Project => ({
   id: db.id,
   name: db.name,
   description: db.description,
-  color: db.color,
+  color:
+    !db.is_system && db.color === SICK_DAY_RED ? REPLACEMENT_FOR_RED : db.color,
   amount: Number(db.amount),
   aKontoPercent: Number(db.a_konto_percent),
   fakturert: Number(db.fakturert),
@@ -120,8 +132,16 @@ export const useStore = create<AppState>()((set, get) => ({
       supabase.from('project_assignments').select('*').order('created_at'),
     ]);
 
+    // One-time migration: red is reserved for sick days; update any regular project with red to orange in DB
+    const rawProjects = projectsRes.data ?? [];
+    for (const p of rawProjects) {
+      if (!p.is_system && p.color === SICK_DAY_RED) {
+        await supabase.from('projects').update({ color: REPLACEMENT_FOR_RED }).eq('id', p.id);
+      }
+    }
+
     let workers = (workersRes.data ?? []).map(dbWorkerToWorker);
-    let projects = (projectsRes.data ?? []).map(dbProjectToProject);
+    let projects = rawProjects.map(dbProjectToProject);
     let assignments = (assignmentsRes.data ?? []).map(dbAssignmentToAssignment);
 
     // Project leaders: only show their own workers, projects, and assignments (safety net if RLS or role is wrong)
@@ -385,6 +405,22 @@ export const useStore = create<AppState>()((set, get) => ({
     set((state) => ({
       assignments: state.assignments.map((a) => (a.id === id ? { ...a, ...updates } : a)),
     }));
+  },
+
+  updateAssignmentAndSplit: async (id, newStartDate, newEndDate, otherSegments) => {
+    const assignment = get().assignments.find((a) => a.id === id);
+    if (!assignment) return;
+
+    const { addAssignment, updateAssignment } = get();
+    for (const seg of otherSegments) {
+      await addAssignment({
+        projectId: assignment.projectId,
+        workerId: assignment.workerId,
+        startDate: seg.startDate,
+        endDate: seg.endDate,
+      });
+    }
+    await updateAssignment(id, { startDate: newStartDate, endDate: newEndDate });
   },
 
   deleteAssignment: async (id) => {

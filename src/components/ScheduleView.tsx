@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
-import { generateWeeks, formatDateShort, parseISO, isSameDay, addDays, startOfDay, format } from '@/utils/dates';
+import { generateWeeks, formatDateShort, parseISO, isSameDay, addDays, startOfDay, format, subtractDateRanges } from '@/utils/dates';
 import { nb } from 'date-fns/locale';
 import { Worker, Project, ProjectAssignment } from '@/types';
 import ProjectModal from './ProjectModal';
@@ -22,7 +22,7 @@ function dateRangesOverlap(
   return start1 <= end2 && end1 >= start2;
 }
 
-// Helper to check if assignment is visible in current view
+// Helper to check if assignment/segment is visible in current view
 function isAssignmentVisible(
   assignment: { startDate: string; endDate: string },
   viewStart: string,
@@ -31,62 +31,167 @@ function isAssignmentVisible(
   return dateRangesOverlap(assignment.startDate, assignment.endDate, viewStart, viewEnd);
 }
 
-// Calculate lane assignments for overlapping bars
-function calculateLanes(
-  assignments: { id: string; startDate: string; endDate: string }[],
+/** Segment for display: assignment bar split by system project (holiday/sick) ranges. */
+export interface AssignmentSegment {
+  assignment: ProjectAssignment;
+  project: Project;
+  startDate: string;
+  endDate: string;
+  otherSegmentsFromSameAssignment: { startDate: string; endDate: string }[];
+}
+
+/** Build segments per worker: system assignments as-is; regular assignments split by system ranges. */
+function getWorkerSegments(
+  workerId: string,
+  assignments: ProjectAssignment[],
+  projects: Project[]
+): AssignmentSegment[] {
+  const workerAssignments = assignments.filter((a) => a.workerId === workerId);
+  const systemRanges = workerAssignments
+    .map((a) => {
+      const proj = projects.find((p) => p.id === a.projectId);
+      return proj?.isSystem ? { start: a.startDate, end: a.endDate } : null;
+    })
+    .filter((r): r is { start: string; end: string } => r != null);
+
+  const segments: AssignmentSegment[] = [];
+  for (const a of workerAssignments) {
+    const project = projects.find((p) => p.id === a.projectId);
+    if (!project || project.status !== 'active') continue;
+
+    if (project.isSystem) {
+      segments.push({
+        assignment: a,
+        project,
+        startDate: a.startDate,
+        endDate: a.endDate,
+        otherSegmentsFromSameAssignment: [],
+      });
+    } else {
+      const parts = subtractDateRanges(a.startDate, a.endDate, systemRanges);
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        const otherSegmentsFromSameAssignment = parts
+          .filter((_, j) => j !== i)
+          .map((p) => ({ startDate: p.start, endDate: p.end }));
+        segments.push({
+          assignment: a,
+          project,
+          startDate: part.start,
+          endDate: part.end,
+          otherSegmentsFromSameAssignment,
+        });
+      }
+    }
+  }
+  return segments;
+}
+
+/** Lane info for one segment: lane index, total lanes, system bar flag, and system bar lane span. */
+export interface SegmentLaneInfo {
+  lane: number;
+  totalLanes: number;
+  isSystemBar: boolean;
+  /** When isSystemBar: first lane (0-based) of the project bars being split / next to it. */
+  systemBarLaneStart?: number;
+  /** When isSystemBar: number of lanes to span (same as project bars next to it). */
+  systemBarLaneCount?: number;
+}
+
+/**
+ * Calculate lane assignments so that segments from the same assignment (split by holiday/sick)
+ * stay on the same line. System bars get height = number of overlapping project bars (not full row).
+ */
+function calculateSegmentLanes(
+  segments: AssignmentSegment[],
   viewStart: string,
   viewEnd: string
-): Map<string, { lane: number; totalLanes: number }> {
-  // Filter to only visible assignments
-  const visibleAssignments = assignments.filter(a => 
-    isAssignmentVisible(a, viewStart, viewEnd)
-  );
-  
-  if (visibleAssignments.length === 0) {
-    return new Map();
+): Map<string, SegmentLaneInfo> {
+  const result = new Map<string, SegmentLaneInfo>();
+  const nonSystemSegments = segments.filter((s) => !s.project.isSystem);
+  const systemSegments = segments.filter((s) => s.project.isSystem);
+
+  // Assign lanes only for non-system segments; group by assignment.id so split parts share one lane
+  const groupRanges = new Map<string, { startDate: string; endDate: string }>();
+  for (const s of nonSystemSegments) {
+    if (!isAssignmentVisible({ startDate: s.startDate, endDate: s.endDate }, viewStart, viewEnd))
+      continue;
+    const existing = groupRanges.get(s.assignment.id);
+    const start = existing
+      ? (existing.startDate <= s.startDate ? existing.startDate : s.startDate)
+      : s.startDate;
+    const end = existing
+      ? (existing.endDate >= s.endDate ? existing.endDate : s.endDate)
+      : s.endDate;
+    groupRanges.set(s.assignment.id, { startDate: start, endDate: end });
   }
-  
-  // Sort by start date
-  const sorted = [...visibleAssignments].sort((a, b) => 
-    a.startDate.localeCompare(b.startDate)
-  );
-  
-  // Assign lanes using a greedy algorithm
-  const laneEndDates: string[] = []; // Track when each lane becomes free
-  const laneAssignments = new Map<string, number>();
-  
-  for (const assignment of sorted) {
-    // Find the first available lane
+
+  const groups = Array.from(groupRanges.entries()).map(([assignmentId, range]) => ({
+    assignmentId,
+    ...range,
+  }));
+  groups.sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+  const laneEndDates: string[] = [];
+  const groupLane = new Map<string, number>();
+  for (const g of groups) {
     let assignedLane = -1;
     for (let i = 0; i < laneEndDates.length; i++) {
-      if (laneEndDates[i] < assignment.startDate) {
+      if (laneEndDates[i] < g.startDate) {
         assignedLane = i;
         break;
       }
     }
-    
     if (assignedLane === -1) {
-      // Need a new lane
       assignedLane = laneEndDates.length;
-      laneEndDates.push(assignment.endDate);
+      laneEndDates.push(g.endDate);
     } else {
-      laneEndDates[assignedLane] = assignment.endDate;
+      laneEndDates[assignedLane] = g.endDate;
     }
-    
-    laneAssignments.set(assignment.id, assignedLane);
+    groupLane.set(g.assignmentId, assignedLane);
   }
-  
-  const totalLanes = laneEndDates.length;
-  
-  // Create result map with lane info
-  const result = new Map<string, { lane: number; totalLanes: number }>();
-  for (const assignment of visibleAssignments) {
-    result.set(assignment.id, {
-      lane: laneAssignments.get(assignment.id) || 0,
-      totalLanes
-    });
-  }
-  
+  const totalLanes = Math.max(1, laneEndDates.length);
+
+  // System bar: draw on the same line(s) as the project bars that overlap or are adjacent
+  const systemBarLaneSpan = (sysStart: string, sysEnd: string): { start: number; count: number } => {
+    const dayBeforeStart = format(addDays(parseISO(sysStart), -1), 'yyyy-MM-dd');
+    const dayAfterEnd = format(addDays(parseISO(sysEnd), 1), 'yyyy-MM-dd');
+    const assignmentIds = new Set<string>();
+    for (const s of nonSystemSegments) {
+      const overlaps = dateRangesOverlap(sysStart, sysEnd, s.startDate, s.endDate);
+      const adjacentBefore = s.endDate === dayBeforeStart;
+      const adjacentAfter = s.startDate === dayAfterEnd;
+      if (overlaps || adjacentBefore || adjacentAfter) {
+        assignmentIds.add(s.assignment.id);
+      }
+    }
+    if (assignmentIds.size === 0) return { start: 0, count: 1 };
+    const lanes = Array.from(assignmentIds).map((id) => groupLane.get(id) ?? 0);
+    const minLane = Math.min(...lanes);
+    const maxLane = Math.max(...lanes);
+    return { start: minLane, count: maxLane - minLane + 1 };
+  };
+
+  const segmentKey = (s: AssignmentSegment, i: number) =>
+    `${s.assignment.id}-${s.startDate}-${s.endDate}-${i}`;
+
+  segments.forEach((s, i) => {
+    const key = segmentKey(s, i);
+    if (s.project.isSystem) {
+      const span = systemBarLaneSpan(s.startDate, s.endDate);
+      result.set(key, {
+        lane: 0,
+        totalLanes,
+        isSystemBar: true,
+        systemBarLaneStart: span.start,
+        systemBarLaneCount: span.count,
+      });
+    } else {
+      const lane = groupLane.get(s.assignment.id) ?? 0;
+      result.set(key, { lane, totalLanes, isSystemBar: false });
+    }
+  });
+
   return result;
 }
 
@@ -310,48 +415,39 @@ export default function ScheduleView() {
     return date >= minDate && date <= maxDate;
   };
 
-  // Get assignments for a specific worker (active projects only)
-  const getWorkerAssignments = useCallback((workerId: string) => {
-    return assignments.filter(a => {
-      const project = projects.find(p => p.id === a.projectId);
-      return a.workerId === workerId && project?.status === 'active';
-    });
-  }, [assignments, projects]);
+  // Get display segments for a worker (assignments split by system project ranges)
+  const getWorkerSegmentsForWorker = useCallback(
+    (workerId: string) => getWorkerSegments(workerId, assignments, projects),
+    [assignments, projects]
+  );
 
-  // Calculate lane info for all workers
+  // Calculate lane info per worker (split segments share lane by assignment.id; system bars full height)
   const workerLaneInfo = useMemo(() => {
-    const result = new Map<string, Map<string, { lane: number; totalLanes: number }>>();
-    
+    const result = new Map<string, Map<string, SegmentLaneInfo>>();
     for (const worker of flatWorkers) {
-      const workerAssignments = getWorkerAssignments(worker.id);
-      const laneInfo = calculateLanes(workerAssignments, viewStartDate, viewEndDate);
+      const segs = getWorkerSegmentsForWorker(worker.id);
+      const laneInfo = calculateSegmentLanes(segs, viewStartDate, viewEndDate);
       result.set(worker.id, laneInfo);
     }
-    
     return result;
-  }, [flatWorkers, getWorkerAssignments, viewStartDate, viewEndDate]);
+  }, [flatWorkers, getWorkerSegmentsForWorker, viewStartDate, viewEndDate]);
 
-  // Get row height for a worker based on overlapping assignments
+  // Get row height for a worker (based on non-system lanes; system bar uses full height)
   const getWorkerRowHeight = useCallback((workerId: string) => {
     const laneInfo = workerLaneInfo.get(workerId);
     if (!laneInfo || laneInfo.size === 0) return BASE_ROW_HEIGHT;
-    
-    // Get max lanes from any assignment
     let maxLanes = 1;
-    laneInfo.forEach(info => {
-      if (info.totalLanes > maxLanes) maxLanes = info.totalLanes;
+    laneInfo.forEach((info) => {
+      if (!info.isSystemBar && info.totalLanes > maxLanes) maxLanes = info.totalLanes;
     });
-    
     if (maxLanes <= 1) return BASE_ROW_HEIGHT;
-    
-    // Increase height by 40% for each additional lane
     return BASE_ROW_HEIGHT + (maxLanes - 1) * (BASE_ROW_HEIGHT * 0.4);
   }, [workerLaneInfo]);
 
-  // Calculate bar position and width
-  const getBarStyle = (assignment: ProjectAssignment) => {
-    const startIdx = allDays.findIndex(d => d.dateString === assignment.startDate);
-    const endIdx = allDays.findIndex(d => d.dateString === assignment.endDate);
+  // Calculate bar position and width from segment dates
+  const getBarStyleFromSegment = (segment: AssignmentSegment) => {
+    const startIdx = allDays.findIndex(d => d.dateString === segment.startDate);
+    const endIdx = allDays.findIndex(d => d.dateString === segment.endDate);
     
     if (startIdx === -1 && endIdx === -1) return null;
     
@@ -519,9 +615,8 @@ export default function ScheduleView() {
             {groupedWorkers.map((group, groupIdx) => (
               <div key={group.leader?.id || 'unassigned'}>
                 {group.members.map((worker, memberIdx) => {
-                  const workerAssignments = getWorkerAssignments(worker.id);
+                  const workerSegments = getWorkerSegmentsForWorker(worker.id);
                   const isLeader = worker.role === 'prosjektleder';
-                  const isFirstInGroup = memberIdx === 0;
                   const rowHeight = getWorkerRowHeight(worker.id);
                   const laneInfo = workerLaneInfo.get(worker.id);
 
@@ -588,25 +683,31 @@ export default function ScheduleView() {
                           </div>
                         ))}
 
-                        {/* Assignment bars */}
-                        {workerAssignments.map(assignment => {
-                          const project = projects.find(p => p.id === assignment.projectId);
-                          const style = getBarStyle(assignment);
-                          const assignmentLaneInfo = laneInfo?.get(assignment.id);
+                        {/* Assignment bars (one per segment; regular projects split by system ranges) */}
+                        {workerSegments.map((segment, segIdx) => {
+                          const style = getBarStyleFromSegment(segment);
+                          const segmentKey = `${segment.assignment.id}-${segment.startDate}-${segment.endDate}-${segIdx}`;
+                          const segmentLaneInfo = laneInfo?.get(segmentKey);
                           
-                          if (!project || !style) return null;
+                          if (!style) return null;
 
                           return (
                             <AssignmentBar
-                              key={assignment.id}
-                              assignment={assignment}
-                              project={project}
+                              key={segmentKey}
+                              assignment={segment.assignment}
+                              project={segment.project}
+                              segmentStartDate={segment.startDate}
+                              segmentEndDate={segment.endDate}
+                              otherSegmentsFromSameAssignment={segment.otherSegmentsFromSameAssignment}
                               style={style}
                               allDays={allDays}
                               cellWidth={CELL_WIDTH}
                               rowHeight={rowHeight}
-                              lane={assignmentLaneInfo?.lane || 0}
-                              totalLanes={assignmentLaneInfo?.totalLanes || 1}
+                              lane={segmentLaneInfo?.lane ?? 0}
+                              totalLanes={segmentLaneInfo?.totalLanes ?? 1}
+                              isSystemBar={segmentLaneInfo?.isSystemBar ?? false}
+                              systemBarLaneStart={segmentLaneInfo?.systemBarLaneStart ?? 0}
+                              systemBarLaneCount={segmentLaneInfo?.systemBarLaneCount ?? 1}
                             />
                           );
                         })}

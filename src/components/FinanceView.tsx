@@ -103,7 +103,8 @@ function countWorkingDays(start: Date, end: Date): number {
 }
 
 const PROJECT_COLORS = [
-  '#EF4444', '#F97316', '#F59E0B', '#EAB308', '#84CC16', '#22C55E',
+  // Red (#EF4444) reserved for sick days only
+  '#F97316', '#F59E0B', '#EAB308', '#84CC16', '#22C55E',
   '#14B8A6', '#06B6D4', '#0EA5E9', '#3B82F6', '#6366F1', '#8B5CF6',
   '#A855F7', '#D946EF', '#EC4899', '#78716C',
 ];
