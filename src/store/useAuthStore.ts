@@ -33,6 +33,7 @@ interface AuthState {
   deleteUser: (userId: string) => Promise<boolean>;
   getUsers: () => Promise<AppUser[]>;
   linkUserToWorker: (userId: string, workerId: string) => Promise<boolean>;
+  setUserPassword: (username: string, newPassword: string) => Promise<boolean>;
 
   // Session management
   initAuth: () => Promise<void>;
@@ -107,7 +108,8 @@ export const useAuthStore = create<AuthState>()(
           });
 
           if (error) {
-            // If sign-in failed, try to migrate the user
+            const supabaseErrorMsg = error.message || String(error);
+            // If sign-in failed, try to migrate the user (only works if not yet migrated)
             const migrateRes = await fetch('/api/auth/migrate', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -116,7 +118,8 @@ export const useAuthStore = create<AuthState>()(
 
             if (!migrateRes.ok) {
               const err = await migrateRes.json();
-              set({ isLoading: false, error: err.error || 'Feil brukernavn eller passord' });
+              const message = err.error || 'Feil brukernavn eller passord';
+              set({ isLoading: false, error: `${message} (Auth: ${supabaseErrorMsg})` });
               return false;
             }
 
@@ -289,6 +292,35 @@ export const useAuthStore = create<AuthState>()(
         }
 
         return true;
+      },
+
+      setUserPassword: async (username: string, newPassword: string) => {
+        const { user } = get();
+        if (!user || user.role !== 'admin') return false;
+        if (!newPassword.trim()) {
+          set({ error: 'Nytt passord er påkrevd' });
+          return false;
+        }
+
+        try {
+          const res = await fetch('/api/admin/set-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: username.trim(), newPassword }),
+          });
+
+          if (!res.ok) {
+            const err = await res.json();
+            set({ error: err.error || 'Kunne ikke sette passord' });
+            return false;
+          }
+
+          set({ error: null });
+          return true;
+        } catch {
+          set({ error: 'En feil oppstod' });
+          return false;
+        }
       },
     }),
     {

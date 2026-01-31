@@ -4,12 +4,12 @@ import { useState, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import { useAuthStore, AppUser } from '@/store/useAuthStore';
 import { Worker, WorkerRole } from '@/types';
-import { Plus, Trash2, Edit2, Check, X, Users, UserPlus, Key, Link2, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, Users, UserPlus, Key, Link2, AlertCircle, KeyRound } from 'lucide-react';
 import clsx from 'clsx';
 
 export default function WorkersView() {
   const { workers, addWorker, updateWorker, deleteWorker } = useStore();
-  const { createUser, deleteUser, getUsers, linkUserToWorker, error: authError } = useAuthStore();
+  const { createUser, deleteUser, getUsers, linkUserToWorker, setUserPassword, error: authError } = useAuthStore();
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newWorker, setNewWorker] = useState({ name: '', role: 'tømrer' as WorkerRole, projectLeaderId: '' });
@@ -21,6 +21,8 @@ export default function WorkersView() {
   const [isAddingUser, setIsAddingUser] = useState(false);
   const [newUser, setNewUser] = useState({ username: '', password: '', workerId: '' });
   const [linkingUserId, setLinkingUserId] = useState<string | null>(null);
+  const [settingPasswordFor, setSettingPasswordFor] = useState<string | null>(null);
+  const [newPasswordValue, setNewPasswordValue] = useState('');
   const [userError, setUserError] = useState<string | null>(null);
 
   // Load users when user management is opened
@@ -76,6 +78,22 @@ export default function WorkersView() {
     if (success) {
       setLinkingUserId(null);
       loadUsers();
+    }
+  };
+
+  const handleSetPassword = async (username: string) => {
+    setUserError(null);
+    if (!newPasswordValue.trim()) {
+      setUserError('Skriv inn nytt passord');
+      return;
+    }
+    const success = await setUserPassword(username, newPasswordValue);
+    if (success) {
+      setSettingPasswordFor(null);
+      setNewPasswordValue('');
+      setUserError(null);
+    } else {
+      setUserError(authError || 'Kunne ikke sette passord');
     }
   };
 
@@ -251,70 +269,115 @@ export default function WorkersView() {
               ) : (
                 users.map((user) => {
                   const linkedWorker = workers.find(w => w.id === user.workerId);
+                  const isSettingPassword = settingPasswordFor === user.id;
                   return (
-                    <div key={user.id} className="bg-white rounded-lg border border-purple-100 p-3 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium"
-                          style={{ backgroundColor: user.profileColor }}
-                        >
-                          {user.username.substring(0, 2).toUpperCase()}
-                        </div>
-                        <div>
-                          <div className="font-medium text-gray-900">{user.username}</div>
-                          <div className="text-xs text-gray-500">
-                            {user.role === 'admin' ? 'Administrator' : 'Prosjektleder'}
-                            {linkedWorker && ` - ${linkedWorker.name}`}
+                    <div key={user.id} className="bg-white rounded-lg border border-purple-100 p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium"
+                            style={{ backgroundColor: user.profileColor }}
+                          >
+                            {user.username.substring(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="font-medium text-gray-900">{user.username}</div>
+                            <div className="text-xs text-gray-500">
+                              {user.role === 'admin' ? 'Administrator' : 'Prosjektleder'}
+                              {linkedWorker && ` - ${linkedWorker.name}`}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {linkingUserId === user.id ? (
-                          <div className="flex items-center gap-2">
-                            <select
-                              className="px-2 py-1 border border-gray-300 rounded text-sm"
-                              defaultValue=""
-                              onChange={(e) => {
-                                if (e.target.value) {
-                                  handleLinkUser(user.id, e.target.value);
-                                }
-                              }}
-                            >
-                              <option value="">Velg prosjektleder...</option>
-                              {projectLeaders.map((leader) => (
-                                <option key={leader.id} value={leader.id}>
-                                  {leader.name}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              onClick={() => setLinkingUserId(null)}
-                              className="p-1 text-gray-400 hover:text-gray-600"
-                            >
-                              <X size={14} />
-                            </button>
-                          </div>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => setLinkingUserId(user.id)}
-                              className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                              title="Koble til prosjektleder"
-                            >
-                              <Link2 size={16} />
-                            </button>
-                            {user.role !== 'admin' && (
-                              <button
-                                onClick={() => handleDeleteUser(user.id)}
-                                className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                title="Slett bruker"
+                        <div className="flex items-center gap-2">
+                          {linkingUserId === user.id ? (
+                            <div className="flex items-center gap-2">
+                              <select
+                                className="px-2 py-1 border border-gray-300 rounded text-sm"
+                                defaultValue=""
+                                onChange={(e) => {
+                                  if (e.target.value) {
+                                    handleLinkUser(user.id, e.target.value);
+                                  }
+                                }}
                               >
-                                <Trash2 size={16} />
+                                <option value="">Velg prosjektleder...</option>
+                                {projectLeaders.map((leader) => (
+                                  <option key={leader.id} value={leader.id}>
+                                    {leader.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                onClick={() => setLinkingUserId(null)}
+                                className="p-1 text-gray-400 hover:text-gray-600"
+                              >
+                                <X size={14} />
                               </button>
-                            )}
-                          </>
-                        )}
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setSettingPasswordFor(isSettingPassword ? null : user.id);
+                                  setNewPasswordValue('');
+                                  setUserError(null);
+                                }}
+                                className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                                title="Sett passord (for brukere uten e-post)"
+                              >
+                                <KeyRound size={16} />
+                              </button>
+                              <button
+                                onClick={() => setLinkingUserId(user.id)}
+                                className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                                title="Koble til prosjektleder"
+                              >
+                                <Link2 size={16} />
+                              </button>
+                              {user.role !== 'admin' && (
+                                <button
+                                  onClick={() => handleDeleteUser(user.id)}
+                                  className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                  title="Slett bruker"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </div>
+                      {isSettingPassword && (
+                        <div className="mt-3 pt-3 border-t border-purple-100 flex flex-wrap items-center gap-2">
+                          <label className="text-sm text-gray-600">Nytt passord:</label>
+                          <input
+                            type="password"
+                            value={newPasswordValue}
+                            onChange={(e) => setNewPasswordValue(e.target.value)}
+                            className="px-3 py-1.5 border border-gray-300 rounded text-sm w-40"
+                            placeholder="Skriv nytt passord"
+                            autoFocus
+                          />
+                          <button
+                            onClick={() => handleSetPassword(user.username)}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm"
+                          >
+                            <Check size={14} />
+                            Lagre
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSettingPasswordFor(null);
+                              setNewPasswordValue('');
+                              setUserError(null);
+                            }}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+                          >
+                            <X size={14} />
+                            Avbryt
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })
