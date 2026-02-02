@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
+import { usernameToAuthEmail } from '@/utils/auth-email';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceRoleKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
-const EMAIL_DOMAIN = 'prosjektstyring.example.com';
 
 export async function POST(request: Request) {
   try {
@@ -64,8 +64,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Brukernavn er allerede i bruk' }, { status: 400 });
     }
 
-    // Create Supabase Auth user
-    const email = `${username}@${EMAIL_DOMAIN}`;
+    // Create Supabase Auth user (ASCII-only email for Supabase validation)
+    const email = usernameToAuthEmail(username);
     const { data: authData, error: createError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,

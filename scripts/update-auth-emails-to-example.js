@@ -63,10 +63,17 @@ async function main() {
   }
 
   const newDomain = 'prosjektstyring.example.com';
+  const TRANSLIT = { å: 'a', æ: 'ae', ø: 'o', ä: 'a', ö: 'o', ü: 'u', é: 'e', è: 'e', ê: 'e', ë: 'e', ñ: 'n', ß: 'ss' };
+  function toLocal(s) {
+    const n = String(s).toLowerCase().trim();
+    let local = '';
+    for (let i = 0; i < n.length; i++) local += TRANSLIT[n[i]] ?? n[i];
+    return local.replace(/[^a-z0-9._-]/g, '') || 'user';
+  }
   let updated = 0;
 
   for (const u of users || []) {
-    const newEmail = `${u.username.toLowerCase()}@${newDomain}`;
+    const newEmail = toLocal(u.username) + '@' + newDomain;
     const { error: updateError } = await supabase.auth.admin.updateUserById(u.auth_user_id, {
       email: newEmail,
     });

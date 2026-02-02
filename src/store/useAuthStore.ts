@@ -1,8 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { supabase } from '@/lib/supabase';
-
-const EMAIL_DOMAIN = 'prosjektstyring.example.com';
+import { usernameToAuthEmail } from '@/utils/auth-email';
 
 export interface AppUser {
   id: string;
@@ -98,7 +97,7 @@ export const useAuthStore = create<AuthState>()(
 
       login: async (username: string, password: string) => {
         set({ isLoading: true, error: null });
-        const email = `${username.toLowerCase().trim()}@${EMAIL_DOMAIN}`;
+        const email = usernameToAuthEmail(username);
 
         try {
           // Try Supabase Auth sign-in first

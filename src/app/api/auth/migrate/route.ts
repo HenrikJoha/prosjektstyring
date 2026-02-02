@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { hashPassword } from '@/lib/hash';
+import { usernameToAuthEmail } from '@/utils/auth-email';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceRoleKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
-const EMAIL_DOMAIN = 'prosjektstyring.example.com';
 
 /**
  * Migrate a user from old password hash to Supabase Auth.
@@ -54,8 +54,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Feil brukernavn eller passord' }, { status: 401 });
     }
 
-    // Create Supabase Auth user with synthetic email
-    const email = `${username}@${EMAIL_DOMAIN}`;
+    // Create Supabase Auth user with synthetic email (ASCII-only for Supabase validation)
+    const email = usernameToAuthEmail(username);
     const { data: authData, error: createError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
