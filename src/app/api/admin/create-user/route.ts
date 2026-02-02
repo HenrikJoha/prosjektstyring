@@ -3,11 +3,17 @@ import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const EMAIL_DOMAIN = 'prosjektstyring.internal';
+const serviceRoleKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
+const EMAIL_DOMAIN = 'prosjektstyring.example.com';
 
 export async function POST(request: Request) {
   try {
+    if (!serviceRoleKey) {
+      console.error('Missing SUPABASE_SERVICE_ROLE_KEY on server');
+      return NextResponse.json({ error: 'Server miskonfigurert' }, { status: 500 });
+    }
     // Verify caller is admin
     const supabaseAuth = createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
       global: {

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { supabase } from '@/lib/supabase';
 
-const EMAIL_DOMAIN = 'prosjektstyring.internal';
+const EMAIL_DOMAIN = 'prosjektstyring.example.com';
 
 export interface AppUser {
   id: string;

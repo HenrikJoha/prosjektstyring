@@ -3,14 +3,20 @@ import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const serviceRoleKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
 
 /**
  * Admin-only: set Supabase Auth password for a user by app_users username.
- * Use this for @prosjektstyring.internal users where "Send password recovery" does not work.
+ * Use this for synthetic-email users where "Send password recovery" does not work.
  */
 export async function POST(request: Request) {
   try {
+    if (!serviceRoleKey) {
+      console.error('Missing SUPABASE_SERVICE_ROLE_KEY on server');
+      return NextResponse.json({ error: 'Server miskonfigurert' }, { status: 500 });
+    }
     const supabaseAuth = createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
       global: {
         headers: {

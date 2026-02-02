@@ -3,8 +3,10 @@ import { createClient } from '@supabase/supabase-js';
 import { hashPassword } from '@/lib/hash';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const EMAIL_DOMAIN = 'prosjektstyring.internal';
+const serviceRoleKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
+const EMAIL_DOMAIN = 'prosjektstyring.example.com';
 
 /**
  * Migrate a user from old password hash to Supabase Auth.
@@ -20,6 +22,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Brukernavn og passord er påkrevd' }, { status: 400 });
     }
 
+    if (!serviceRoleKey) {
+      console.error('Missing SUPABASE_SERVICE_ROLE_KEY (or NEXT_PUBLIC_ fallback) on server');
+      return NextResponse.json({ error: 'Server miskonfigurert' }, { status: 500 });
+    }
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
@@ -35,11 +41,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Feil brukernavn eller passord' }, { status: 401 });
     }
 
-    // If already migrated, tell client to use Supabase Auth directly
+    // If already migrated: we never use app_users.password_hash. Only Supabase Auth is used.
+    // Returning 401 here forces the user to use the password stored in Supabase Auth.
     if (appUser.auth_user_id) {
       return NextResponse.json({ error: 'Feil brukernavn eller passord' }, { status: 401 });
     }
 
+    // Not migrated yet: verify with OLD hash from app_users, then create Auth user with same password
     // Verify old password hash
     const oldHash = await hashPassword(password);
     if (oldHash !== appUser.password_hash) {
