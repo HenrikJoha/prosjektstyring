@@ -100,42 +100,19 @@ export const useAuthStore = create<AuthState>()(
         const email = usernameToAuthEmail(username);
 
         try {
-          // Try Supabase Auth sign-in first
+          // Sign in with Supabase Auth
           const { data, error } = await supabase.auth.signInWithPassword({
             email,
             password,
           });
 
           if (error) {
-            const supabaseErrorMsg = error.message || String(error);
-            // If sign-in failed, try to migrate the user (only works if not yet migrated)
-            const migrateRes = await fetch('/api/auth/migrate', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ username: username.trim(), password }),
-            });
-
-            if (!migrateRes.ok) {
-              const err = await migrateRes.json();
-              const message = err.error || 'Feil brukernavn eller passord';
-              set({ isLoading: false, error: `${message} (Auth: ${supabaseErrorMsg})` });
-              return false;
-            }
-
-            // Migration successful, now sign in
-            const { data: retryData, error: retryError } = await supabase.auth.signInWithPassword({
-              email,
-              password,
-            });
-
-            if (retryError || !retryData.user) {
-              set({ isLoading: false, error: 'Kunne ikke logge inn etter migrering' });
-              return false;
-            }
+            set({ isLoading: false, error: 'Feil brukernavn eller passord' });
+            return false;
           }
 
           // Fetch app_users data
-          const authUser = data?.user ?? (await supabase.auth.getUser()).data.user;
+          const authUser = data?.user;
           if (!authUser) {
             set({ isLoading: false, error: 'Kunne ikke hente brukerdata' });
             return false;

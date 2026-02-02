@@ -11,7 +11,9 @@
     "check-auth": "node scripts/check-auth-status.js",
     "update-auth-emails": "node scripts/update-auth-emails-to-example.js",
     "debug-login": "node scripts/debug-login.js",
-    "migrate-one": "node scripts/migrate-one-user.js"
+    "migrate-one": "node scripts/migrate-one-user.js",
+    "migrate-all": "node scripts/migrate-all-users.js",
+    "fix-all-auth": "node scripts/fix-all-auth-users.js"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",
