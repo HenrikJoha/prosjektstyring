@@ -126,11 +126,35 @@ export const useStore = create<AppState>()((set, get) => ({
   loadData: async (userWorkerId?: string | null, isAdmin: boolean = false) => {
     set({ isLoading: true, currentUserWorkerId: userWorkerId ?? null, isAdmin });
 
+    // Validate session first (handles Chrome/Edge differences: missing or stale session in localStorage)
+    const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+    if (authError || !authUser) {
+      if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('prosjektstyring_session_expired', '1');
+      await supabase.auth.signOut();
+      set({ isLoading: false });
+      return;
+    }
+
     const [workersRes, projectsRes, assignmentsRes] = await Promise.all([
       supabase.from('workers').select('*').order('created_at'),
       supabase.from('projects').select('*').order('created_at'),
       supabase.from('project_assignments').select('*').order('created_at'),
     ]);
+
+    // If any query failed with auth error (401/403 or JWT/session), sign out so user can log in again
+    const authErr = [workersRes.error, projectsRes.error, assignmentsRes.error].find(
+      (e) =>
+        e &&
+        ((e as { status?: number }).status === 401 ||
+          (e as { status?: number }).status === 403 ||
+          /jwt|session|unauthorized|forbidden/i.test(String((e as { message?: string }).message ?? '')))
+    );
+    if (authErr) {
+      if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('prosjektstyring_session_expired', '1');
+      await supabase.auth.signOut();
+      set({ workers: [], projects: [], assignments: [], isLoading: false });
+      return;
+    }
 
     // One-time migration: red is reserved for sick days; update any regular project with red to orange in DB
     const rawProjects = projectsRes.data ?? [];

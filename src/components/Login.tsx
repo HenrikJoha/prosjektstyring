@@ -12,6 +12,15 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   
   const { login, isLoading, error } = useAuthStore();
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  // Show "session expired" when redirected after auth failure (e.g. Chrome vs Edge session issues)
+  React.useEffect(() => {
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('prosjektstyring_session_expired')) {
+      sessionStorage.removeItem('prosjektstyring_session_expired');
+      setSessionExpired(true);
+    }
+  }, []);
 
   // Reset loading state on mount if it's stuck
   React.useEffect(() => {
@@ -51,6 +60,12 @@ export default function Login() {
 
         {/* Login Form */}
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-xl p-8">
+          {sessionExpired && (
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800">
+              <AlertCircle size={18} />
+              <span className="text-sm">Sesjon utløpt eller ugyldig. Logg inn på nytt.</span>
+            </div>
+          )}
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
               <AlertCircle size={18} />

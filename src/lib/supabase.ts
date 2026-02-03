@@ -3,7 +3,66 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+/** In-memory fallback when localStorage/sessionStorage are blocked (e.g. by ad blocker). */
+const memoryStore: Record<string, string> = {};
+
+/**
+ * Storage that prefers localStorage, then sessionStorage, then memory.
+ * Lets the app work when an ad blocker blocks or clears localStorage.
+ */
+const fallbackStorage = {
+  getItem(key: string): string | null {
+    if (typeof window === 'undefined') return null;
+    try {
+      const v = localStorage.getItem(key);
+      if (v != null) return v;
+    } catch {
+      // localStorage blocked
+    }
+    try {
+      const v = sessionStorage.getItem(key);
+      if (v != null) return v;
+    } catch {
+      // sessionStorage blocked
+    }
+    return memoryStore[key] ?? null;
+  },
+  setItem(key: string, value: string): void {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // ignore
+    }
+    try {
+      sessionStorage.setItem(key, value);
+    } catch {
+      // ignore
+    }
+    memoryStore[key] = value;
+  },
+  removeItem(key: string): void {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // ignore
+    }
+    try {
+      sessionStorage.removeItem(key);
+    } catch {
+      // ignore
+    }
+    delete memoryStore[key];
+  },
+};
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    storage: fallbackStorage,
+    storageKey: 'prosjektstyring-supabase-auth',
+  },
+});
 
 // Database types matching our schema
 export interface DbWorker {
