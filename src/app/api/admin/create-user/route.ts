@@ -14,16 +14,17 @@ export async function POST(request: Request) {
       console.error('Missing SUPABASE_SERVICE_ROLE_KEY on server');
       return NextResponse.json({ error: 'Server miskonfigurert' }, { status: 500 });
     }
-    // Verify caller is admin
+    const authHeader = request.headers.get('Authorization');
+    const jwt = authHeader?.replace(/^Bearer\s+/i, '') || undefined;
     const supabaseAuth = createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
       global: {
-        headers: {
-          cookie: (await cookies()).toString(),
-        },
+        headers: authHeader ? { Authorization: authHeader } : { cookie: (await cookies()).toString() },
       },
     });
-    
-    const { data: { user: authUser } } = await supabaseAuth.auth.getUser();
+
+    const { data: { user: authUser } } = jwt
+      ? await supabaseAuth.auth.getUser(jwt)
+      : await supabaseAuth.auth.getUser();
     if (!authUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

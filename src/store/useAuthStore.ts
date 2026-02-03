@@ -32,7 +32,7 @@ interface AuthState {
   deleteUser: (userId: string) => Promise<boolean>;
   getUsers: () => Promise<AppUser[]>;
   linkUserToWorker: (userId: string, workerId: string) => Promise<boolean>;
-  setUserPassword: (username: string, newPassword: string) => Promise<boolean>;
+  setUserPassword: (userId: string, newPassword: string) => Promise<boolean | string>;
 
   // Session management
   initAuth: () => Promise<void>;
@@ -46,14 +46,23 @@ export const useAuthStore = create<AuthState>()(
       error: null,
 
       initAuth: async () => {
-        // Check if there's an existing Supabase Auth session
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
+        const clearInvalidSession = async () => {
+          await supabase.auth.signOut();
+          set({ user: null, error: null });
+        };
+
+        try {
+          // Validate session with server (catches "Invalid Refresh Token" etc.)
+          const { data: { user: authUser }, error } = await supabase.auth.getUser();
+          if (error || !authUser) {
+            await clearInvalidSession();
+            return;
+          }
           // Fetch app_users data
           const { data: appUser } = await supabase
             .from('app_users')
             .select('id, username, role, worker_id, profile_color')
-            .eq('auth_user_id', session.user.id)
+            .eq('auth_user_id', authUser.id)
             .maybeSingle();
 
           if (appUser) {
@@ -66,13 +75,21 @@ export const useAuthStore = create<AuthState>()(
                 profileColor: appUser.profile_color,
               },
             });
+          } else {
+            await clearInvalidSession();
           }
+        } catch {
+          await clearInvalidSession();
         }
 
-        // Listen for auth state changes
+        // Listen for auth state changes (and invalid token / sign out)
         supabase.auth.onAuthStateChange(async (event, session) => {
           if (event === 'SIGNED_OUT' || !session) {
             set({ user: null });
+          } else if (event === 'TOKEN_REFRESHED') {
+            // If refresh failed, Supabase may have signed us out; keep state in sync
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) set({ user: null });
           } else if (event === 'SIGNED_IN' && session?.user) {
             const { data: appUser } = await supabase
               .from('app_users')
@@ -190,10 +207,12 @@ export const useAuthStore = create<AuthState>()(
         if (!user || user.role !== 'admin') return false;
 
         try {
-          // Call API to create user (needs service role for Supabase Auth admin)
+          const { data: { session } } = await supabase.auth.getSession();
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
           const res = await fetch('/api/admin/create-user', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ username, password, role, workerId }),
             credentials: 'include',
           });
@@ -220,9 +239,12 @@ export const useAuthStore = create<AuthState>()(
         }
 
         try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
           const res = await fetch('/api/admin/delete-user', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ userId }),
             credentials: 'include',
           });
@@ -272,33 +294,46 @@ export const useAuthStore = create<AuthState>()(
         return true;
       },
 
-      setUserPassword: async (username: string, newPassword: string) => {
+      setUserPassword: async (userId: string, newPassword: string): Promise<boolean | string> => {
         const { user } = get();
         if (!user || user.role !== 'admin') return false;
         if (!newPassword.trim()) {
           set({ error: 'Nytt passord er påkrevd' });
-          return false;
+          return 'Nytt passord er påkrevd';
         }
 
         try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
           const res = await fetch('/api/admin/set-password', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: username.trim(), newPassword }),
+            headers,
+            body: JSON.stringify({ userId: userId.trim(), newPassword }),
             credentials: 'include',
           });
 
           if (!res.ok) {
-            const err = await res.json();
-            set({ error: err.error || 'Kunne ikke sette passord' });
-            return false;
+            let err: { error?: string; message?: string } = {};
+            try {
+              err = await res.json();
+            } catch {
+              // ignore
+            }
+            const msg =
+              (typeof err?.error === 'string' && err.error) ||
+              (typeof err?.message === 'string' && err.message) ||
+              'Kunne ikke sette passord';
+            set({ error: msg });
+            return msg;
           }
 
           set({ error: null });
           return true;
         } catch {
-          set({ error: 'En feil oppstod' });
-          return false;
+          const msg = 'En feil oppstod';
+          set({ error: msg });
+          return msg;
         }
       },
     }),

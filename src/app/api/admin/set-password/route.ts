@@ -8,7 +8,8 @@ const serviceRoleKey =
   process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
 
 /**
- * Admin-only: set Supabase Auth password for a user by app_users username.
+ * Admin-only: set Supabase Auth password for a user by app_users id.
+ * Looks up app_users -> auth_user_id, then updates Supabase Authentication (Auth) password.
  * Use this for synthetic-email users where "Send password recovery" does not work.
  */
 export async function POST(request: Request) {
@@ -17,15 +18,17 @@ export async function POST(request: Request) {
       console.error('Missing SUPABASE_SERVICE_ROLE_KEY on server');
       return NextResponse.json({ error: 'Server miskonfigurert' }, { status: 500 });
     }
+    const authHeader = request.headers.get('Authorization');
+    const jwt = authHeader?.replace(/^Bearer\s+/i, '') || undefined;
     const supabaseAuth = createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
       global: {
-        headers: {
-          cookie: (await cookies()).toString(),
-        },
+        headers: authHeader ? { Authorization: authHeader } : { cookie: (await cookies()).toString() },
       },
     });
 
-    const { data: { user: authUser } } = await supabaseAuth.auth.getUser();
+    const { data: { user: authUser } } = jwt
+      ? await supabaseAuth.auth.getUser(jwt)
+      : await supabaseAuth.auth.getUser();
     if (!authUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -45,12 +48,12 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const username = typeof body.username === 'string' ? body.username.toLowerCase().trim() : '';
+    const userId = typeof body.userId === 'string' ? body.userId.trim() : '';
     const newPassword = typeof body.newPassword === 'string' ? body.newPassword : '';
 
-    if (!username || !newPassword) {
+    if (!userId || !newPassword) {
       return NextResponse.json(
-        { error: 'Brukernavn og nytt passord er påkrevd' },
+        { error: 'Bruker og nytt passord er påkrevd' },
         { status: 400 }
       );
     }
@@ -58,7 +61,7 @@ export async function POST(request: Request) {
     const { data: appUser, error: fetchError } = await supabaseAdmin
       .from('app_users')
       .select('auth_user_id')
-      .eq('username', username)
+      .eq('id', userId)
       .maybeSingle();
 
     if (fetchError || !appUser?.auth_user_id) {
@@ -75,9 +78,20 @@ export async function POST(request: Request) {
 
     if (updateError) {
       console.error('Set password error:', updateError);
+      const err = updateError as { message?: string; msg?: string; error_description?: string; status?: number; code?: string };
+      let message =
+        (typeof err.message === 'string' && err.message.trim()) ||
+        (typeof err.msg === 'string' && err.msg.trim()) ||
+        (typeof err.error_description === 'string' && err.error_description.trim()) ||
+        '';
+      if (!message && err.code === 'weak_password') {
+        message = 'Passordet er for svakt. Supabase krever minst 6 tegn (og anbefaler et sterkere passord).';
+      }
+      if (!message) message = 'Kunne ikke oppdatere passord';
+      const status = err.status === 400 ? 400 : 500;
       return NextResponse.json(
-        { error: 'Kunne ikke oppdatere passord' },
-        { status: 500 }
+        { error: message },
+        { status }
       );
     }
 

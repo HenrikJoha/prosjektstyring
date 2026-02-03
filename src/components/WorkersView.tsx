@@ -24,6 +24,7 @@ export default function WorkersView() {
   const [settingPasswordFor, setSettingPasswordFor] = useState<string | null>(null);
   const [newPasswordValue, setNewPasswordValue] = useState('');
   const [userError, setUserError] = useState<string | null>(null);
+  const [userSuccess, setUserSuccess] = useState<string | null>(null);
 
   // Load users when user management is opened
   useEffect(() => {
@@ -83,19 +84,22 @@ export default function WorkersView() {
     }
   };
 
-  const handleSetPassword = async (username: string) => {
+  const handleSetPassword = async (userId: string) => {
     setUserError(null);
+    setUserSuccess(null);
     if (!newPasswordValue.trim()) {
       setUserError('Skriv inn nytt passord');
       return;
     }
-    const success = await setUserPassword(username, newPasswordValue);
-    if (success) {
+    const result = await setUserPassword(userId, newPasswordValue);
+    if (result === true) {
       setSettingPasswordFor(null);
       setNewPasswordValue('');
       setUserError(null);
+      setUserSuccess('Passord er endret.');
+      setTimeout(() => setUserSuccess(null), 4000);
     } else {
-      setUserError(authError || 'Kunne ikke sette passord');
+      setUserError(typeof result === 'string' ? result : (authError || 'Kunne ikke sette passord'));
     }
   };
 
@@ -188,6 +192,12 @@ export default function WorkersView() {
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
                 <AlertCircle size={18} />
                 <span className="text-sm">{userError}</span>
+              </div>
+            )}
+            {userSuccess && (
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-green-700">
+                <Check size={18} />
+                <span className="text-sm">{userSuccess}</span>
               </div>
             )}
 
@@ -326,6 +336,7 @@ export default function WorkersView() {
                                   setSettingPasswordFor(isSettingPassword ? null : user.id);
                                   setNewPasswordValue('');
                                   setUserError(null);
+                                  setUserSuccess(null);
                                 }}
                                 className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
                                 title="Sett passord (for brukere uten e-post)"
@@ -373,7 +384,7 @@ export default function WorkersView() {
                           />
                           <button
                             type="button"
-                            onClick={() => handleSetPassword(user.username)}
+                            onClick={() => handleSetPassword(user.id)}
                             className="flex items-center gap-1 px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             disabled={!newPasswordValue.trim()}
                           >
@@ -381,10 +392,12 @@ export default function WorkersView() {
                             Lagre
                           </button>
                           <button
+                            type="button"
                             onClick={() => {
                               setSettingPasswordFor(null);
                               setNewPasswordValue('');
                               setUserError(null);
+                              setUserSuccess(null);
                             }}
                             className="flex items-center gap-1 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
                           >
