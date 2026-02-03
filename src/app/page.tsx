@@ -11,10 +11,11 @@ import FinanceView from '@/components/FinanceView';
 import Login from '@/components/Login';
 
 export default function Home() {
-  const activeTab = useStore((state) => state.activeTab);
   const isLoading = useStore((state) => state.isLoading);
   const loadData = useStore((state) => state.loadData);
-  
+  const activeTab = useStore((state) => state.activeTab);
+  const setActiveTab = useStore((state) => state.setActiveTab);
+
   const user = useAuthStore((state) => state.user);
   const initAuth = useAuthStore((state) => state.initAuth);
   const isAdmin = user?.role === 'admin';
@@ -30,6 +31,13 @@ export default function Home() {
       loadData(user.workerId, user.role === 'admin');
     }
   }, [user, loadData]);
+
+  // If non-admin is on a tab they can't see (e.g. workers), switch to Kalender
+  useEffect(() => {
+    if (user && !isLoading && !isAdmin && activeTab === 'workers') {
+      setActiveTab('schedule');
+    }
+  }, [user, isLoading, isAdmin, activeTab, setActiveTab]);
 
   // Show login if not authenticated
   if (!user) {

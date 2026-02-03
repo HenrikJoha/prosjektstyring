@@ -195,6 +195,7 @@ export const useAuthStore = create<AuthState>()(
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password, role, workerId }),
+            credentials: 'include',
           });
 
           if (!res.ok) {
@@ -223,6 +224,7 @@ export const useAuthStore = create<AuthState>()(
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ userId }),
+            credentials: 'include',
           });
 
           if (!res.ok) {
@@ -283,6 +285,7 @@ export const useAuthStore = create<AuthState>()(
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username: username.trim(), newPassword }),
+            credentials: 'include',
           });
 
           if (!res.ok) {

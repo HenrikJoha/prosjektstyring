@@ -65,11 +65,13 @@ export default function WorkersView() {
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (confirm('Er du sikker på at du vil slette denne brukeren?')) {
-      const success = await deleteUser(userId);
-      if (success) {
-        loadUsers();
-      }
+    if (!confirm('Er du sikker på at du vil slette denne brukeren?')) return;
+    setUserError(null);
+    const success = await deleteUser(userId);
+    if (success) {
+      loadUsers();
+    } else {
+      setUserError(authError || 'Kunne ikke slette bruker');
     }
   };
 
@@ -288,7 +290,7 @@ export default function WorkersView() {
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 relative z-10">
                           {linkingUserId === user.id ? (
                             <div className="flex items-center gap-2">
                               <select
@@ -308,6 +310,7 @@ export default function WorkersView() {
                                 ))}
                               </select>
                               <button
+                                type="button"
                                 onClick={() => setLinkingUserId(null)}
                                 className="p-1 text-gray-400 hover:text-gray-600"
                               >
@@ -317,27 +320,37 @@ export default function WorkersView() {
                           ) : (
                             <>
                               <button
-                                onClick={() => {
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setSettingPasswordFor(isSettingPassword ? null : user.id);
                                   setNewPasswordValue('');
                                   setUserError(null);
                                 }}
-                                className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                                className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
                                 title="Sett passord (for brukere uten e-post)"
                               >
                                 <KeyRound size={16} />
                               </button>
                               <button
-                                onClick={() => setLinkingUserId(user.id)}
-                                className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setLinkingUserId(user.id);
+                                }}
+                                className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
                                 title="Koble til prosjektleder"
                               >
                                 <Link2 size={16} />
                               </button>
                               {user.role !== 'admin' && (
                                 <button
-                                  onClick={() => handleDeleteUser(user.id)}
-                                  className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteUser(user.id);
+                                  }}
+                                  className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                                   title="Slett bruker"
                                 >
                                   <Trash2 size={16} />
@@ -359,8 +372,10 @@ export default function WorkersView() {
                             autoFocus
                           />
                           <button
+                            type="button"
                             onClick={() => handleSetPassword(user.username)}
-                            className="flex items-center gap-1 px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm"
+                            className="flex items-center gap-1 px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={!newPasswordValue.trim()}
                           >
                             <Check size={14} />
                             Lagre

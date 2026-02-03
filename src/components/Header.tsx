@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { formatCurrency } from '@/utils/dates';
@@ -13,6 +13,11 @@ export default function Header() {
   const totalOrdrereserve = getTotalOrdrereserve();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showProfileSettings, setShowProfileSettings] = useState(false);
+
+  // Close user menu when switching tabs so it never gets stuck open
+  useEffect(() => {
+    setShowUserMenu(false);
+  }, [activeTab]);
 
   const getTitle = () => {
     switch (activeTab) {
@@ -67,6 +72,7 @@ export default function Header() {
                     <div
                       className="fixed inset-0 z-40"
                       onClick={() => setShowUserMenu(false)}
+                      aria-hidden
                     />
                     <div className="absolute left-0 md:left-auto md:right-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-50 py-1">
                       <div className="px-4 py-3 border-b border-gray-100">
