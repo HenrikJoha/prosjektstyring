@@ -135,6 +135,9 @@ export default function FinanceView() {
   // Edit project modal state
   const [editingProject, setEditingProject] = useState<Project | null>(null);
 
+  // Delete project confirmation modal (Økonomi only)
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+
   // Get all project leaders
   const projectLeaders = workers.filter(w => w.role === 'prosjektleder');
 
@@ -638,11 +641,7 @@ export default function FinanceView() {
                             Fullført
                           </button>
                           <button
-                            onClick={() => {
-                              if (confirm('Er du sikker på at du vil slette dette prosjektet?')) {
-                                deleteProject(project.id);
-                              }
-                            }}
+                            onClick={() => setProjectToDelete(project)}
                             className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
                             title="Slett prosjekt"
                           >
@@ -996,11 +995,7 @@ export default function FinanceView() {
                                 Fullført
                               </button>
                               <button
-                                onClick={() => {
-                                  if (confirm('Er du sikker på at du vil slette dette prosjektet?')) {
-                                    deleteProject(project.id);
-                                  }
-                                }}
+                                onClick={() => setProjectToDelete(project)}
                                 className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
                                 title="Slett prosjekt"
                               >
@@ -1274,6 +1269,45 @@ export default function FinanceView() {
           project={editingProject}
           onClose={() => setEditingProject(null)}
         />
+      )}
+
+      {/* Delete project confirmation modal */}
+      {projectToDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setProjectToDelete(null)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">Slett prosjekt</h2>
+            </div>
+            <div className="p-6">
+              <p className="text-gray-700">
+                Er du sikker på at du vil slette prosjektet &quot;{projectToDelete.name}&quot; helt? Dette fjerner prosjektet og alle tildelinger permanent.
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+              <button
+                onClick={() => setProjectToDelete(null)}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                Avbryt
+              </button>
+              <button
+                onClick={() => {
+                  deleteProject(projectToDelete.id);
+                  setProjectToDelete(null);
+                }}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Ja, slett prosjekt
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

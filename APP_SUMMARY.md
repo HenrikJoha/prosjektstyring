@@ -153,10 +153,9 @@ Financial overview and project financial management.
 - **System Projects**: Can only view info, cannot edit details
 
 #### Deleting Projects:
-- **Regular Projects**: 
-  - If removing last assignment: Confirmation dialog asks to delete project or just remove assignment
-  - If multiple assignments exist: Simply removes the assignment
-- **System Projects**: Cannot be deleted, only assignments can be removed
+- **Delete project** is only available on the **Økonomi** (Finance) page (trash icon per project).
+- **Kalender**: Double-clicking a bar only offers **"Fjern fra kalender"** (remove assignment from calendar). This applies to every bar, including the last one for that project—the project is not deleted from the calendar view.
+- **System Projects**: Cannot be deleted; only assignments can be removed from the calendar.
 
 ---
 

@@ -80,6 +80,11 @@ export default function AssignmentBar({
   // Confirmation modal state
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [pendingDates, setPendingDates] = useState<{ startDate: string; endDate: string } | null>(null);
+  const pendingDatesRef = useRef<{ startDate: string; endDate: string } | null>(null);
+
+  // Local preview during drag/resize - avoids store/DB updates on every move (fixes lag)
+  const [previewDates, setPreviewDates] = useState<{ startDate: string; endDate: string } | null>(null);
+  const previewDatesRef = useRef<{ startDate: string; endDate: string } | null>(null);
 
   // Get date from X position
   const getDateFromPosition = useCallback((xPosition: number) => {
@@ -98,7 +103,7 @@ export default function AssignmentBar({
     return endIdx >= 0 && startIdx >= 0 ? endIdx - startIdx + 1 : Math.round(style.width / cellWidth);
   }, [allDays, effectiveStart, effectiveEnd, style.width, cellWidth]);
 
-  // Handle move/resize logic
+  // Handle move/resize logic - update local preview only during drag (persist on release to fix lag)
   const handleDragMove = useCallback((clientX: number) => {
     if (!dragStateRef.current) return;
 
@@ -107,6 +112,9 @@ export default function AssignmentBar({
 
     const containerRect = container.getBoundingClientRect();
     const relativeX = clientX - containerRect.left;
+
+    let newStart = effectiveStart;
+    let newEnd = effectiveEnd;
 
     if (dragStateRef.current.type === 'drag') {
       const mouseDelta = clientX - dragStateRef.current.startX;
@@ -120,45 +128,39 @@ export default function AssignmentBar({
         if (startIdx >= 0 && endIdx < allDays.length) {
           const endDate = allDays[endIdx]?.dateString;
           if (endDate) {
-            if (otherSegmentsFromSameAssignment.length > 0) {
-              updateAssignmentAndSplit(assignment.id, newStartDate, endDate, otherSegmentsFromSameAssignment);
-            } else {
-              updateAssignment(assignment.id, { startDate: newStartDate, endDate });
-            }
+            newStart = newStartDate;
+            newEnd = endDate;
           }
         }
       }
     } else if (dragStateRef.current.type === 'resize-left') {
       const newStartDate = getDateFromPosition(relativeX);
       if (newStartDate && newStartDate <= effectiveEnd) {
-        if (otherSegmentsFromSameAssignment.length > 0) {
-          updateAssignmentAndSplit(assignment.id, newStartDate, effectiveEnd, otherSegmentsFromSameAssignment);
-        } else {
-          updateAssignment(assignment.id, { startDate: newStartDate });
-        }
+        newStart = newStartDate;
+        newEnd = effectiveEnd;
       }
     } else if (dragStateRef.current.type === 'resize-right') {
       const newEndDate = getDateFromPosition(relativeX);
       if (newEndDate && newEndDate >= effectiveStart) {
-        if (otherSegmentsFromSameAssignment.length > 0) {
-          updateAssignmentAndSplit(assignment.id, effectiveStart, newEndDate, otherSegmentsFromSameAssignment);
-        } else {
-          updateAssignment(assignment.id, { endDate: newEndDate });
-        }
+        newStart = effectiveStart;
+        newEnd = newEndDate;
       }
     }
-  }, [getContainer, getDateFromPosition, allDays, assignment, effectiveStart, effectiveEnd, otherSegmentsFromSameAssignment, updateAssignment, updateAssignmentAndSplit]);
 
-  // Clear all drag state and check if confirmation is needed
+    if (newStart !== effectiveStart || newEnd !== effectiveEnd) {
+      const next = { startDate: newStart, endDate: newEnd };
+      previewDatesRef.current = next;
+      setPreviewDates(next);
+    }
+  }, [getContainer, getDateFromPosition, allDays, effectiveStart, effectiveEnd]);
+
+  // Clear all drag state; show confirmation modal if dates changed (persist only on confirm)
   const clearDragState = useCallback((skipConfirmation: boolean = false) => {
     const wasActive = isDragging || isResizing;
     const hadOriginalDates = originalDatesRef.current;
-    const hadDragState = dragStateRef.current !== null; // Check if drag was ever initiated
-    
-    // Store current dates before clearing state (segment range)
-    const currentStartDate = effectiveStart;
-    const currentEndDate = effectiveEnd;
-    
+    const hadDragState = dragStateRef.current !== null;
+    const finalPreview = previewDatesRef.current;
+
     dragStateRef.current = null;
     touchStartPosRef.current = null;
     setIsDragging(false);
@@ -170,48 +172,53 @@ export default function AssignmentBar({
       clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
     }
-    
-    // Check if dates changed and show confirmation
-    // Show confirmation if:
-    // 1. Drag was active (isDragging or isResizing was true), OR
-    // 2. Drag state was initiated (hadDragState) - covers edge cases where drag activated but state wasn't fully set
-    // 3. We have original dates to compare against
-    if (!skipConfirmation && hadOriginalDates && (wasActive || hadDragState)) {
-      const datesChanged = 
-        hadOriginalDates.startDate !== currentStartDate || 
-        hadOriginalDates.endDate !== currentEndDate;
-      
-      if (datesChanged) {
-        setPendingDates({ startDate: currentStartDate, endDate: currentEndDate });
-        setShowConfirmModal(true);
-      } else {
-        originalDatesRef.current = null;
-      }
-    } else if (!skipConfirmation && hadOriginalDates) {
-      // If we had original dates but no drag was active, clear them
+
+    const currentStartDate = finalPreview?.startDate ?? effectiveStart;
+    const currentEndDate = finalPreview?.endDate ?? effectiveEnd;
+    const datesChanged =
+      hadOriginalDates &&
+      (hadOriginalDates.startDate !== currentStartDate || hadOriginalDates.endDate !== currentEndDate);
+
+    if (!skipConfirmation && hadOriginalDates && (wasActive || hadDragState) && datesChanged) {
+      const next = { startDate: currentStartDate, endDate: currentEndDate };
+      pendingDatesRef.current = next;
+      setPendingDates(next);
+      setShowConfirmModal(true);
+      // Keep previewDates so bar stays at new position until user confirms or cancels
+    } else {
       originalDatesRef.current = null;
+      previewDatesRef.current = null;
+      setPreviewDates(null);
     }
   }, [isDragging, isResizing, effectiveStart, effectiveEnd]);
   
-  // Handle confirmation
+  // Handle confirmation - persist and clear preview
   const handleConfirmMove = useCallback(() => {
-    setShowConfirmModal(false);
-    setPendingDates(null);
-    originalDatesRef.current = null;
-  }, []);
-  
-  // Handle cancel - revert this assignment to original segment dates
-  const handleCancelMove = useCallback(() => {
-    if (originalDatesRef.current) {
-      updateAssignment(assignment.id, {
-        startDate: originalDatesRef.current.startDate,
-        endDate: originalDatesRef.current.endDate,
-      });
+    const toApply = pendingDatesRef.current;
+    if (toApply) {
+      if (otherSegmentsFromSameAssignment.length > 0) {
+        updateAssignmentAndSplit(assignment.id, toApply.startDate, toApply.endDate, otherSegmentsFromSameAssignment);
+      } else {
+        updateAssignment(assignment.id, { startDate: toApply.startDate, endDate: toApply.endDate });
+      }
     }
+    pendingDatesRef.current = null;
     setShowConfirmModal(false);
     setPendingDates(null);
     originalDatesRef.current = null;
-  }, [assignment.id, updateAssignment]);
+    previewDatesRef.current = null;
+    setPreviewDates(null);
+  }, [otherSegmentsFromSameAssignment, assignment.id, updateAssignment, updateAssignmentAndSplit]);
+
+  // Handle cancel - clear preview so bar snaps back; no persist
+  const handleCancelMove = useCallback(() => {
+    pendingDatesRef.current = null;
+    setShowConfirmModal(false);
+    setPendingDates(null);
+    originalDatesRef.current = null;
+    previewDatesRef.current = null;
+    setPreviewDates(null);
+  }, []);
 
   // ===== MOUSE HANDLERS (Desktop) =====
 
@@ -413,6 +420,13 @@ export default function AssignmentBar({
     ? padding + (systemBarLaneStart * (availableHeight / totalLanes)) + (totalLanes > 1 ? 1 : 4)
     : padding + (lane * (availableHeight / totalLanes)) + (totalLanes > 1 ? 1 : 4);
 
+  const displayStart = previewDates?.startDate ?? effectiveStart;
+  const displayEnd = previewDates?.endDate ?? effectiveEnd;
+  const startIdx = allDays.findIndex((d) => d.dateString === displayStart);
+  const endIdx = allDays.findIndex((d) => d.dateString === displayEnd);
+  const displayLeft = startIdx >= 0 ? startIdx * cellWidth : style.left;
+  const displayWidth = startIdx >= 0 && endIdx >= 0 ? (endIdx - startIdx + 1) * cellWidth : style.width;
+
   return (
     <>
       <div
@@ -423,8 +437,8 @@ export default function AssignmentBar({
           touchHoldActive && 'ring-2 ring-blue-400'
         )}
         style={{
-          left: style.left,
-          width: style.width,
+          left: displayLeft,
+          width: displayWidth,
           top: barTop,
           height: barHeight,
           backgroundColor: barColor,

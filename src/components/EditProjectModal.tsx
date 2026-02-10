@@ -33,12 +33,9 @@ interface EditProjectModalProps {
 }
 
 export default function EditProjectModal({ project, assignment, onClose }: EditProjectModalProps) {
-  const { updateProject, deleteProject, deleteAssignment, assignments, isAdmin, currentUserWorkerId } = useStore();
+  const { updateProject, deleteAssignment, assignments, isAdmin, currentUserWorkerId } = useStore();
   const user = useAuthStore((state) => state.user);
-  
-  // Check if user can delete the entire project (admin or project owner)
-  const canDeleteProject = isAdmin || (user?.role === 'admin') || project.projectLeaderId === currentUserWorkerId;
-  
+
   // Check if user can edit the project (admin or project owner)
   const canEditProject = !project.isSystem && (isAdmin || (user?.role === 'admin') || project.projectLeaderId === currentUserWorkerId);
   const [formData, setFormData] = useState({
@@ -48,12 +45,7 @@ export default function EditProjectModal({ project, assignment, onClose }: EditP
     amount: project.amount,
     billingType: project.billingType,
   });
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleteType, setDeleteType] = useState<'assignment' | 'project' | null>(null);
-
-  // Check how many assignments this project has
-  const projectAssignments = assignments.filter(a => a.projectId === project.id);
-  const isLastAssignment = assignment && projectAssignments.length === 1;
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
 
   const handleSave = () => {
     if (formData.name.trim() && canEditProject) {
@@ -72,13 +64,6 @@ export default function EditProjectModal({ project, assignment, onClose }: EditP
     if (assignment) {
       deleteAssignment(assignment.id);
     }
-    onClose();
-  };
-
-  const handleDeleteProject = () => {
-    // Delete all assignments for this project first, then the project
-    projectAssignments.forEach(a => deleteAssignment(a.id));
-    deleteProject(project.id);
     onClose();
   };
 
@@ -232,37 +217,23 @@ export default function EditProjectModal({ project, assignment, onClose }: EditP
           )}
         </div>
 
-        {/* Footer with delete options */}
+        {/* Footer: only "remove from calendar" when opened from calendar (assignment provided). Delete project is only on Økonomi. */}
         <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 space-y-3">
-          {/* Delete confirmation */}
-          {showDeleteConfirm && deleteType && (
+          {/* Remove-from-calendar confirmation */}
+          {showRemoveConfirm && assignment && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-3">
               <p className="text-sm text-red-800 mb-3">
-                {deleteType === 'assignment' 
-                  ? 'Er du sikker på at du vil fjerne denne tildelingen fra kalenderen?'
-                  : isLastAssignment
-                    ? 'Dette er den siste tildelingen for dette prosjektet. Vil du slette hele prosjektet?'
-                    : 'Er du sikker på at du vil slette hele prosjektet og alle tildelinger?'
-                }
+                Er du sikker på at du vil fjerne denne tildelingen fra kalenderen?
               </p>
               <div className="flex gap-2">
                 <button
-                  onClick={() => {
-                    if (deleteType === 'assignment') {
-                      handleRemoveAssignment();
-                    } else {
-                      handleDeleteProject();
-                    }
-                  }}
+                  onClick={handleRemoveAssignment}
                   className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700"
                 >
-                  {deleteType === 'assignment' ? 'Ja, fjern' : 'Ja, slett'}
+                  Ja, fjern
                 </button>
                 <button
-                  onClick={() => {
-                    setShowDeleteConfirm(false);
-                    setDeleteType(null);
-                  }}
+                  onClick={() => setShowRemoveConfirm(false)}
                   className="px-3 py-1.5 text-sm bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Avbryt
@@ -272,47 +243,23 @@ export default function EditProjectModal({ project, assignment, onClose }: EditP
           )}
 
           {/* Action buttons */}
-          {!showDeleteConfirm && (
+          {!showRemoveConfirm && (
             <div className="flex flex-col gap-2">
-              {/* Remove from calendar - always show if we have an assignment */}
+              {/* Remove from calendar - only option in Kalender (including when this is the last bar) */}
               {assignment && (
                 <button
-                  onClick={() => {
-                    if (isLastAssignment && !project.isSystem && canDeleteProject) {
-                      // Last assignment for a regular project - ask about deleting project (only if user has permission)
-                      setDeleteType('project');
-                      setShowDeleteConfirm(true);
-                    } else {
-                      // Just remove assignment (user doesn't own project, or it's a system project, or there are more assignments)
-                      setDeleteType('assignment');
-                      setShowDeleteConfirm(true);
-                    }
-                  }}
+                  onClick={() => setShowRemoveConfirm(true)}
                   className="flex items-center justify-center gap-2 w-full px-4 py-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
                 >
                   <Trash2 size={18} />
                   Fjern fra kalender
                 </button>
               )}
-              
-              {/* Delete entire project - only for non-system projects with multiple assignments AND user has permission */}
-              {!project.isSystem && projectAssignments.length > 1 && canDeleteProject && (
-                <button
-                  onClick={() => {
-                    setDeleteType('project');
-                    setShowDeleteConfirm(true);
-                  }}
-                  className="flex items-center justify-center gap-2 w-full px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-sm"
-                >
-                  <Trash2 size={16} />
-                  Slett hele prosjektet ({projectAssignments.length} tildelinger)
-                </button>
-              )}
             </div>
           )}
 
           {/* Save/Cancel buttons - only for editable projects */}
-          {canEditProject && !showDeleteConfirm && (
+          {canEditProject && !showRemoveConfirm && (
             <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
               <button
                 onClick={onClose}
@@ -337,7 +284,7 @@ export default function EditProjectModal({ project, assignment, onClose }: EditP
           )}
 
           {/* Close button for system projects or read-only projects */}
-          {(project.isSystem || !canEditProject) && !showDeleteConfirm && (
+          {(project.isSystem || !canEditProject) && !showRemoveConfirm && (
             <div className="flex justify-end pt-2 border-t border-gray-200">
               <button
                 onClick={onClose}
