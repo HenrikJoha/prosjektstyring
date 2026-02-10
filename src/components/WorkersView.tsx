@@ -26,6 +26,12 @@ export default function WorkersView() {
   const [userError, setUserError] = useState<string | null>(null);
   const [userSuccess, setUserSuccess] = useState<string | null>(null);
 
+  // Delete worker confirmation modal (Ansatte)
+  const [workerToDelete, setWorkerToDelete] = useState<Worker | null>(null);
+
+  // Delete app user confirmation modal (Brukeradministrasjon)
+  const [userToDelete, setUserToDelete] = useState<AppUser | null>(null);
+
   // Load users when user management is opened
   useEffect(() => {
     if (showUserManagement) {
@@ -65,12 +71,13 @@ export default function WorkersView() {
     }
   };
 
-  const handleDeleteUser = async (userId: string) => {
-    if (!confirm('Er du sikker på at du vil slette denne brukeren?')) return;
+  const handleConfirmDeleteUser = async () => {
+    if (!userToDelete) return;
     setUserError(null);
-    const success = await deleteUser(userId);
+    const success = await deleteUser(userToDelete.id);
     if (success) {
       loadUsers();
+      setUserToDelete(null);
     } else {
       setUserError(authError || 'Kunne ikke slette bruker');
     }
@@ -359,7 +366,7 @@ export default function WorkersView() {
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleDeleteUser(user.id);
+                                    setUserToDelete(user);
                                   }}
                                   className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                                   title="Slett bruker"
@@ -503,7 +510,7 @@ export default function WorkersView() {
                   onEdit={() => handleEdit(leader)}
                   onSave={() => handleSaveEdit(leader.id)}
                   onCancel={() => setEditingId(null)}
-                  onDelete={() => deleteWorker(leader.id)}
+                  onDelete={() => setWorkerToDelete(leader)}
                   isLeader
                 />
                 
@@ -521,7 +528,7 @@ export default function WorkersView() {
                         onEdit={() => handleEdit(carpenter)}
                         onSave={() => handleSaveEdit(carpenter.id)}
                         onCancel={() => setEditingId(null)}
-                        onDelete={() => deleteWorker(carpenter.id)}
+                        onDelete={() => setWorkerToDelete(carpenter)}
                         indented
                       />
                     ))}
@@ -547,7 +554,7 @@ export default function WorkersView() {
                     onEdit={() => handleEdit(carpenter)}
                     onSave={() => handleSaveEdit(carpenter.id)}
                     onCancel={() => setEditingId(null)}
-                    onDelete={() => deleteWorker(carpenter.id)}
+                    onDelete={() => setWorkerToDelete(carpenter)}
                   />
                 ))}
               </div>
@@ -555,6 +562,81 @@ export default function WorkersView() {
           </div>
         )}
       </div>
+
+      {/* Delete worker confirmation modal */}
+      {workerToDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setWorkerToDelete(null)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">Slett ansatt</h2>
+            </div>
+            <div className="p-6">
+              <p className="text-gray-700">
+                Er du sikker på at du vil slette {workerToDelete.name}? Dette fjerner ansatten og alle deres tildelinger i kalenderen permanent.
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+              <button
+                onClick={() => setWorkerToDelete(null)}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                Avbryt
+              </button>
+              <button
+                onClick={() => {
+                  deleteWorker(workerToDelete.id);
+                  setWorkerToDelete(null);
+                }}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Ja, slett ansatt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete app user confirmation modal */}
+      {userToDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setUserToDelete(null)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">Slett bruker</h2>
+            </div>
+            <div className="p-6">
+              <p className="text-gray-700">
+                Er du sikker på at du vil slette brukeren &quot;{userToDelete.username}&quot;? De vil ikke lenger kunne logge inn i appen.
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+              <button
+                onClick={() => setUserToDelete(null)}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                Avbryt
+              </button>
+              <button
+                onClick={() => handleConfirmDeleteUser()}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Ja, slett bruker
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
