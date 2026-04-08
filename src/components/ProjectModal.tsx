@@ -42,6 +42,7 @@ export default function ProjectModal({
 }: ProjectModalProps) {
   const { projects, workers, addProject } = useStore();
   const [mode, setMode] = useState<'select' | 'create'>('select');
+  const [projectSearch, setProjectSearch] = useState('');
   const [newProject, setNewProject] = useState({
     name: '',
     description: '',
@@ -73,6 +74,18 @@ export default function ProjectModal({
     }
     return null;
   }, [worker, workers]);
+
+  const filteredRegularProjects = useMemo(() => {
+    const normalizedSearch = projectSearch.trim().toLowerCase();
+
+    if (!normalizedSearch) {
+      return regularProjects;
+    }
+
+    return regularProjects.filter(project =>
+      project.name.trim().toLowerCase().startsWith(normalizedSearch)
+    );
+  }, [projectSearch, regularProjects]);
 
   const formatDateRange = () => {
     const start = parseISO(startDate);
@@ -196,8 +209,17 @@ export default function ProjectModal({
                   <div className="text-sm font-medium text-gray-500 mb-3">
                     Eller velg eksisterende prosjekt:
                   </div>
+                  <div className="mb-3">
+                    <input
+                      type="text"
+                      value={projectSearch}
+                      onChange={(e) => setProjectSearch(e.target.value)}
+                      placeholder="Filtrer prosjekter..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
                   <div className="space-y-2">
-                    {regularProjects.map(project => {
+                    {filteredRegularProjects.map(project => {
                       const leader = workers.find(w => w.id === project.projectLeaderId);
                       return (
                         <button
@@ -223,6 +245,11 @@ export default function ProjectModal({
                       );
                     })}
                   </div>
+                  {filteredRegularProjects.length === 0 && (
+                    <p className="text-sm text-gray-500 py-4 text-center">
+                      Ingen prosjekter matcher det du skriver.
+                    </p>
+                  )}
                 </>
               )}
 
