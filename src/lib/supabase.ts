@@ -86,6 +86,7 @@ export interface DbProject {
   status: 'active' | 'completed';
   project_type: 'regular' | 'sick_leave' | 'vacation';
   is_system: boolean;
+  is_placeholder: boolean;
   project_leader_id: string | null;
   planned_start_date: string | null;
   duration_days: number | null;

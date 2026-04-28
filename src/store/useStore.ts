@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Worker, Project, ProjectAssignment, DragSelection } from '@/types';
+import { Worker, Project, ProjectAssignment, DragSelection, BillingType } from '@/types';
 import { supabase, DbWorker, DbProject, DbProjectAssignment } from '@/lib/supabase';
 import { parseISO, addDays, format, isWeekend } from 'date-fns';
 
@@ -65,6 +65,7 @@ const dbWorkerToWorker = (db: DbWorker): Worker => ({
 // Red is reserved for sick days; migrate existing red regular projects to orange
 const SICK_DAY_RED = '#EF4444';
 const REPLACEMENT_FOR_RED = '#F97316';
+const PLACEHOLDER_BILLING_TYPE: BillingType = 'tilbud';
 
 const dbProjectToProject = (db: DbProject): Project => ({
   id: db.id,
@@ -79,6 +80,7 @@ const dbProjectToProject = (db: DbProject): Project => ({
   status: db.status,
   projectType: db.project_type,
   isSystem: db.is_system,
+  isPlaceholder: db.is_placeholder,
   projectLeaderId: db.project_leader_id || undefined,
   plannedStartDate: db.planned_start_date || undefined,
   durationDays: db.duration_days || undefined,
@@ -270,21 +272,36 @@ export const useStore = create<AppState>()((set, get) => ({
       projectLeaderId = currentUserWorkerId;
     }
 
+    const projectData = !isAdmin
+      ? {
+          ...project,
+          amount: 0,
+          aKontoPercent: 0,
+          fakturert: 0,
+          billingType: PLACEHOLDER_BILLING_TYPE,
+          isPlaceholder: true,
+        }
+      : {
+          ...project,
+          isPlaceholder: project.isPlaceholder ?? false,
+        };
+
     const { data, error } = await supabase
       .from('projects')
       .insert({
-        name: project.name,
-        description: project.description,
-        color: project.color,
-        amount: project.amount,
-        a_konto_percent: project.aKontoPercent,
-        fakturert: project.fakturert || 0,
-        billing_type: project.billingType || 'tilbud',
-        status: project.status,
-        project_type: project.projectType || 'regular',
+        name: projectData.name,
+        description: projectData.description,
+        color: projectData.color,
+        amount: projectData.amount,
+        a_konto_percent: projectData.aKontoPercent,
+        fakturert: projectData.fakturert || 0,
+        billing_type: projectData.billingType || PLACEHOLDER_BILLING_TYPE,
+        status: projectData.status,
+        project_type: projectData.projectType || 'regular',
+        is_placeholder: projectData.isPlaceholder,
         project_leader_id: projectLeaderId,
-        planned_start_date: project.plannedStartDate || null,
-        duration_days: project.durationDays || null,
+        planned_start_date: projectData.plannedStartDate || null,
+        duration_days: projectData.durationDays || null,
       })
       .select()
       .single();
@@ -315,28 +332,41 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   updateProject: async (id, updates) => {
-    const { addAssignment, assignments } = get();
+    const { addAssignment, assignments, isAdmin } = get();
     const currentProject = get().projects.find((p) => p.id === id);
+    if (!currentProject) return;
+
+    const sanitizedUpdates = { ...updates };
+    if (!isAdmin) {
+      delete sanitizedUpdates.amount;
+      delete sanitizedUpdates.aKontoPercent;
+      delete sanitizedUpdates.fakturert;
+      delete sanitizedUpdates.billingType;
+      delete sanitizedUpdates.isPlaceholder;
+    }
 
     const dbUpdates: Record<string, unknown> = {};
-    if (updates.name !== undefined) dbUpdates.name = updates.name;
-    if (updates.description !== undefined) dbUpdates.description = updates.description;
-    if (updates.color !== undefined) dbUpdates.color = updates.color;
-    if (updates.amount !== undefined) dbUpdates.amount = updates.amount;
-    if (updates.aKontoPercent !== undefined) dbUpdates.a_konto_percent = updates.aKontoPercent;
-    if (updates.fakturert !== undefined) dbUpdates.fakturert = updates.fakturert;
-    if (updates.billingType !== undefined) dbUpdates.billing_type = updates.billingType;
-    if (updates.status !== undefined) dbUpdates.status = updates.status;
-    if (updates.projectType !== undefined) dbUpdates.project_type = updates.projectType;
-    if (updates.projectLeaderId !== undefined) {
+    if (sanitizedUpdates.name !== undefined) dbUpdates.name = sanitizedUpdates.name;
+    if (sanitizedUpdates.description !== undefined) dbUpdates.description = sanitizedUpdates.description;
+    if (sanitizedUpdates.color !== undefined) dbUpdates.color = sanitizedUpdates.color;
+    if (sanitizedUpdates.amount !== undefined) dbUpdates.amount = sanitizedUpdates.amount;
+    if (sanitizedUpdates.aKontoPercent !== undefined) dbUpdates.a_konto_percent = sanitizedUpdates.aKontoPercent;
+    if (sanitizedUpdates.fakturert !== undefined) dbUpdates.fakturert = sanitizedUpdates.fakturert;
+    if (sanitizedUpdates.billingType !== undefined) dbUpdates.billing_type = sanitizedUpdates.billingType;
+    if (sanitizedUpdates.status !== undefined) dbUpdates.status = sanitizedUpdates.status;
+    if (sanitizedUpdates.projectType !== undefined) dbUpdates.project_type = sanitizedUpdates.projectType;
+    if (sanitizedUpdates.isPlaceholder !== undefined) dbUpdates.is_placeholder = sanitizedUpdates.isPlaceholder;
+    if (sanitizedUpdates.projectLeaderId !== undefined) {
       dbUpdates.project_leader_id =
-        updates.projectLeaderId === null || updates.projectLeaderId === ''
+        sanitizedUpdates.projectLeaderId === null || sanitizedUpdates.projectLeaderId === ''
           ? null
-          : updates.projectLeaderId;
+          : sanitizedUpdates.projectLeaderId;
     }
-    if (updates.plannedStartDate !== undefined)
-      dbUpdates.planned_start_date = updates.plannedStartDate || null;
-    if (updates.durationDays !== undefined) dbUpdates.duration_days = updates.durationDays || null;
+    if (sanitizedUpdates.plannedStartDate !== undefined)
+      dbUpdates.planned_start_date = sanitizedUpdates.plannedStartDate || null;
+    if (sanitizedUpdates.durationDays !== undefined) dbUpdates.duration_days = sanitizedUpdates.durationDays || null;
+
+    if (Object.keys(dbUpdates).length === 0) return;
 
     const { error } = await supabase.from('projects').update(dbUpdates).eq('id', id);
 
@@ -345,7 +375,7 @@ export const useStore = create<AppState>()((set, get) => ({
       return;
     }
 
-    const updatedProject = { ...currentProject, ...updates } as Project;
+    const updatedProject = { ...currentProject, ...sanitizedUpdates } as Project;
 
     set((state) => ({
       projects: state.projects.map((p) => (p.id === id ? updatedProject : p)),
@@ -468,7 +498,7 @@ export const useStore = create<AppState>()((set, get) => ({
   // Computed
   getProjectFinance: (projectId) => {
     const project = get().projects.find((p) => p.id === projectId);
-    if (!project) return { fakturert: 0, ordrereserve: 0 };
+    if (!project || project.isPlaceholder) return { fakturert: 0, ordrereserve: 0 };
 
     if (project.billingType === 'timer_materiell') {
       const fakturert = project.fakturert;
@@ -484,7 +514,7 @@ export const useStore = create<AppState>()((set, get) => ({
   getTotalOrdrereserve: () => {
     const { projects } = get();
     return projects
-      .filter((p) => p.status === 'active' && p.projectType === 'regular')
+      .filter((p) => p.status === 'active' && p.projectType === 'regular' && !p.isPlaceholder)
       .reduce((total, project) => {
         if (project.billingType === 'timer_materiell') {
           return total + Math.max(0, project.amount - project.fakturert);

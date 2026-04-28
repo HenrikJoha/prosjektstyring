@@ -40,7 +40,7 @@ export default function ProjectModal({
   onClose,
   onSelect,
 }: ProjectModalProps) {
-  const { projects, workers, addProject } = useStore();
+  const { projects, workers, addProject, isAdmin } = useStore();
   const [mode, setMode] = useState<'select' | 'create'>('select');
   const [projectSearch, setProjectSearch] = useState('');
   const [newProject, setNewProject] = useState({
@@ -51,27 +51,28 @@ export default function ProjectModal({
     billingType: 'tilbud' as 'tilbud' | 'timer_materiell',
   });
 
-  // Separate sick leave, vacation, and regular projects
-  const sickLeaveProjects = projects.filter(p => 
-    p.status === 'active' && p.projectType === 'sick_leave'
+  const sickLeaveProjects = projects.filter(
+    (project) => project.status === 'active' && project.projectType === 'sick_leave'
   );
-  const vacationProjects = projects.filter(p => 
-    p.status === 'active' && p.projectType === 'vacation'
+  const vacationProjects = projects.filter(
+    (project) => project.status === 'active' && project.projectType === 'vacation'
   );
-  const regularProjects = projects.filter(p => 
-    p.status === 'active' && p.projectType === 'regular'
+  const regularProjects = projects.filter(
+    (project) => project.status === 'active' && project.projectType === 'regular'
   );
-  const worker = workers.find(w => w.id === workerId);
+  const worker = workers.find((item) => item.id === workerId);
 
-  // Determine the project leader for this assignment
   const projectLeader = useMemo(() => {
     if (!worker) return null;
-    
+
     if (worker.role === 'prosjektleder') {
       return worker;
-    } else if (worker.projectLeaderId) {
-      return workers.find(w => w.id === worker.projectLeaderId);
     }
+
+    if (worker.projectLeaderId) {
+      return workers.find((item) => item.id === worker.projectLeaderId) ?? null;
+    }
+
     return null;
   }, [worker, workers]);
 
@@ -82,7 +83,7 @@ export default function ProjectModal({
       return regularProjects;
     }
 
-    return regularProjects.filter(project =>
+    return regularProjects.filter((project) =>
       project.name.trim().toLowerCase().startsWith(normalizedSearch)
     );
   }, [projectSearch, regularProjects]);
@@ -90,155 +91,150 @@ export default function ProjectModal({
   const formatDateRange = () => {
     const start = parseISO(startDate);
     const end = parseISO(endDate);
+
     if (startDate === endDate) {
       return format(start, 'd. MMMM yyyy');
     }
+
     return `${format(start, 'd. MMM')} - ${format(end, 'd. MMM yyyy')}`;
   };
 
   const handleCreateProject = async () => {
-    if (newProject.name.trim()) {
-      const createdId = await addProject({
-        name: newProject.name.trim(),
-        description: newProject.description.trim(),
-        color: newProject.color,
-        amount: newProject.amount,
-        aKontoPercent: 0,
-        fakturert: 0,
-        billingType: newProject.billingType,
-        status: 'active',
-        projectType: 'regular',
-        isSystem: false,
-        projectLeaderId: projectLeader?.id,
-      });
-      if (createdId) {
-        onSelect(createdId);
-      }
+    if (!newProject.name.trim()) return;
+
+    const createdId = await addProject({
+      name: newProject.name.trim(),
+      description: newProject.description.trim(),
+      color: newProject.color,
+      amount: newProject.amount,
+      aKontoPercent: 0,
+      fakturert: 0,
+      billingType: newProject.billingType,
+      status: 'active',
+      projectType: 'regular',
+      isSystem: false,
+      isPlaceholder: !isAdmin,
+      projectLeaderId: projectLeader?.id,
+    });
+
+    if (createdId) {
+      onSelect(createdId);
     }
   };
 
-  const handleSelectProject = (projectId: string) => {
-    onSelect(projectId);
-  };
+  const selectionTitle = isAdmin ? 'Velg eller opprett prosjekt' : 'Velg prosjekt eller opprett aktivitet';
+  const createTitle = isAdmin ? 'Nytt prosjekt' : 'Ny aktivitet';
+  const createButtonLabel = isAdmin ? 'Opprett nytt prosjekt' : 'Opprett ny aktivitet';
+  const createSubmitLabel = isAdmin ? 'Opprett og tildel' : 'Opprett aktivitet';
+  const emptyProjectsLabel = isAdmin
+    ? 'Ingen eksisterende prosjekter. Opprett et nytt prosjekt for å starte.'
+    : 'Ingen eksisterende prosjekter. Opprett en ny aktivitet for å starte.';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">
-              {mode === 'select' ? 'Velg eller opprett prosjekt' : 'Nytt prosjekt'}
+              {mode === 'select' ? selectionTitle : createTitle}
             </h2>
-            <p className="text-sm text-gray-500 mt-0.5">
-              {worker?.name} • {formatDateRange()}
+            <p className="mt-0.5 text-sm text-gray-500">
+              {worker?.name} - {formatDateRange()}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
           >
             <X size={20} />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+        <div className="max-h-[calc(90vh-140px)] overflow-y-auto p-6">
           {mode === 'select' ? (
             <>
-              {/* Sick Leave Section */}
-              <div className="mb-4 p-4 bg-red-50/30 rounded-xl border border-red-100/50">
-                <div className="text-sm font-semibold text-red-800 mb-3">Sykefravær</div>
+              <div className="mb-4 rounded-xl border border-red-100/50 bg-red-50/30 p-4">
+                <div className="mb-3 text-sm font-semibold text-red-800">Sykefravær</div>
                 <div className="grid grid-cols-2 gap-2">
-                  {sickLeaveProjects.map(project => (
+                  {sickLeaveProjects.map((project) => (
                     <button
                       key={project.id}
-                      onClick={() => handleSelectProject(project.id)}
-                      className="flex items-center gap-2 p-3 bg-white border border-red-200 rounded-lg hover:border-red-400 hover:bg-red-50 transition-colors text-left"
+                      onClick={() => onSelect(project.id)}
+                      className="flex items-center gap-2 rounded-lg border border-red-200 bg-white p-3 text-left transition-colors hover:border-red-400 hover:bg-red-50"
                     >
                       <div
-                        className="w-3 h-3 rounded-full flex-shrink-0"
+                        className="h-3 w-3 flex-shrink-0 rounded-full"
                         style={{ backgroundColor: project.color }}
                       />
-                      <span className="font-medium text-gray-900 text-sm">
-                        {project.name}
-                      </span>
+                      <span className="text-sm font-medium text-gray-900">{project.name}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Vacation/Leave Section */}
-              <div className="mb-4 p-4 bg-yellow-50 rounded-xl border border-yellow-200">
-                <div className="text-sm font-semibold text-yellow-700 mb-3">Fravær / Permisjon</div>
+              <div className="mb-4 rounded-xl border border-yellow-200 bg-yellow-50 p-4">
+                <div className="mb-3 text-sm font-semibold text-yellow-700">Fravær / Permisjon</div>
                 <div className="grid grid-cols-3 gap-2">
-                  {vacationProjects.map(project => (
+                  {vacationProjects.map((project) => (
                     <button
                       key={project.id}
-                      onClick={() => handleSelectProject(project.id)}
-                      className="flex items-center gap-2 p-3 bg-white border border-yellow-300 rounded-lg hover:border-yellow-500 hover:bg-yellow-50 transition-colors text-left"
+                      onClick={() => onSelect(project.id)}
+                      className="flex items-center gap-2 rounded-lg border border-yellow-300 bg-white p-3 text-left transition-colors hover:border-yellow-500 hover:bg-yellow-50"
                     >
                       <div
-                        className="w-3 h-3 rounded-full flex-shrink-0"
+                        className="h-3 w-3 flex-shrink-0 rounded-full"
                         style={{ backgroundColor: project.color }}
                       />
-                      <span className="font-medium text-gray-900 text-sm">
-                        {project.name}
-                      </span>
+                      <span className="text-sm font-medium text-gray-900">{project.name}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="border-t border-gray-200 my-5" />
+              <div className="my-5 border-t border-gray-200" />
 
-              {/* Create new project button */}
               <button
                 onClick={() => setMode('create')}
-                className="w-full flex items-center gap-3 p-4 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-colors mb-4"
+                className="mb-4 flex w-full items-center gap-3 rounded-lg border-2 border-dashed border-gray-300 p-4 text-gray-600 transition-colors hover:border-blue-500 hover:bg-blue-50 hover:text-blue-600"
               >
-                <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
                   <Plus size={24} />
                 </div>
-                <span className="font-medium">Opprett nytt prosjekt</span>
+                <span className="font-medium">{createButtonLabel}</span>
               </button>
 
-              {/* Existing regular projects */}
               {regularProjects.length > 0 && (
                 <>
-                  <div className="text-sm font-medium text-gray-500 mb-3">
+                  <div className="mb-3 text-sm font-medium text-gray-500">
                     Eller velg eksisterende prosjekt:
                   </div>
                   <div className="mb-3">
                     <input
                       type="text"
                       value={projectSearch}
-                      onChange={(e) => setProjectSearch(e.target.value)}
+                      onChange={(event) => setProjectSearch(event.target.value)}
                       placeholder="Filtrer prosjekter..."
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <div className="space-y-2">
-                    {filteredRegularProjects.map(project => {
-                      const leader = workers.find(w => w.id === project.projectLeaderId);
+                    {filteredRegularProjects.map((project) => {
+                      const leader = workers.find((item) => item.id === project.projectLeaderId);
+
                       return (
                         <button
                           key={project.id}
-                          onClick={() => handleSelectProject(project.id)}
-                          className="w-full flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors text-left"
+                          onClick={() => onSelect(project.id)}
+                          className="flex w-full items-center gap-3 rounded-lg border border-gray-200 p-3 text-left transition-colors hover:border-blue-500 hover:bg-blue-50"
                         >
                           <div
-                            className="w-10 h-10 rounded-lg flex-shrink-0"
+                            className="h-10 w-10 flex-shrink-0 rounded-lg"
                             style={{ backgroundColor: project.color }}
                           />
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium text-gray-900 truncate">
-                              {project.name}
-                            </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-medium text-gray-900">{project.name}</div>
                             {leader && (
-                              <div className="text-sm text-gray-500 truncate">
-                                {leader.name}
-                              </div>
+                              <div className="truncate text-sm text-gray-500">{leader.name}</div>
                             )}
                           </div>
                         </button>
@@ -246,7 +242,7 @@ export default function ProjectModal({
                     })}
                   </div>
                   {filteredRegularProjects.length === 0 && (
-                    <p className="text-sm text-gray-500 py-4 text-center">
+                    <p className="py-4 text-center text-sm text-gray-500">
                       Ingen prosjekter matcher det du skriver.
                     </p>
                   )}
@@ -254,24 +250,20 @@ export default function ProjectModal({
               )}
 
               {regularProjects.length === 0 && (
-                <p className="text-center text-gray-500 py-4">
-                  Ingen eksisterende prosjekter. Opprett et nytt prosjekt for å starte.
-                </p>
+                <p className="py-4 text-center text-gray-500">{emptyProjectsLabel}</p>
               )}
             </>
           ) : (
             <>
-              {/* Back button */}
               <button
                 onClick={() => setMode('select')}
-                className="text-sm text-blue-600 hover:text-blue-700 mb-4"
+                className="mb-4 text-sm text-blue-600 hover:text-blue-700"
               >
-                ← Tilbake til valg
+                {'<-'} Tilbake til valg
               </button>
 
-              {/* Project leader info */}
               {projectLeader && (
-                <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-100 flex items-center gap-2">
+                <div className="mb-4 flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 p-3">
                   <User size={16} className="text-blue-600" />
                   <span className="text-sm text-blue-800">
                     Prosjektleder: <span className="font-medium">{projectLeader.name}</span>
@@ -279,75 +271,87 @@ export default function ProjectModal({
                 </div>
               )}
 
-              {/* Create form */}
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
                     Prosjektnavn *
                   </label>
                   <input
                     type="text"
                     value={newProject.name}
-                    onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    onChange={(event) =>
+                      setNewProject({ ...newProject, name: event.target.value })
+                    }
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
                     placeholder="F.eks. Klokkerjordet 16"
                     autoFocus
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Prosjekttype
-                  </label>
-                  <select
-                    value={newProject.billingType}
-                    onChange={(e) => setNewProject({ ...newProject, billingType: e.target.value as 'tilbud' | 'timer_materiell' })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="tilbud">Tilbud</option>
-                    <option value="timer_materiell">Timer og materiell</option>
-                  </select>
-                </div>
+                {isAdmin && (
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">
+                      Prosjekttype
+                    </label>
+                    <select
+                      value={newProject.billingType}
+                      onChange={(event) =>
+                        setNewProject({
+                          ...newProject,
+                          billingType: event.target.value as 'tilbud' | 'timer_materiell',
+                        })
+                      }
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="tilbud">Tilbud</option>
+                      <option value="timer_materiell">Timer og materiell</option>
+                    </select>
+                  </div>
+                )}
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
                     Beskrivelse
                   </label>
                   <textarea
                     value={newProject.description}
-                    onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                    onChange={(event) =>
+                      setNewProject({ ...newProject, description: event.target.value })
+                    }
+                    className="w-full resize-none rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
                     rows={2}
                     placeholder="Valgfri beskrivelse..."
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Beløp (NOK)
-                  </label>
-                  <input
-                    type="number"
-                    value={newProject.amount || ''}
-                    onChange={(e) => setNewProject({ ...newProject, amount: Number(e.target.value) })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="0"
-                    min={0}
-                  />
-                </div>
+                {isAdmin && (
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">
+                      Beløp (NOK)
+                    </label>
+                    <input
+                      type="number"
+                      value={newProject.amount || ''}
+                      onChange={(event) =>
+                        setNewProject({ ...newProject, amount: Number(event.target.value) })
+                      }
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                      placeholder="0"
+                      min={0}
+                    />
+                  </div>
+                )}
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Farge
-                  </label>
+                  <label className="mb-2 block text-sm font-medium text-gray-700">Farge</label>
                   <div className="flex flex-wrap gap-2">
-                    {PROJECT_COLORS.map(color => (
+                    {PROJECT_COLORS.map((color) => (
                       <button
                         key={color}
                         onClick={() => setNewProject({ ...newProject, color })}
                         className={clsx(
-                          'w-8 h-8 rounded-lg transition-transform hover:scale-110',
-                          newProject.color === color && 'ring-2 ring-offset-2 ring-blue-500'
+                          'h-8 w-8 rounded-lg transition-transform hover:scale-110',
+                          newProject.color === color && 'ring-2 ring-blue-500 ring-offset-2'
                         )}
                         style={{ backgroundColor: color }}
                       />
@@ -359,12 +363,11 @@ export default function ProjectModal({
           )}
         </div>
 
-        {/* Footer */}
         {mode === 'create' && (
-          <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
+          <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+              className="rounded-lg px-4 py-2 text-gray-700 transition-colors hover:bg-gray-200"
             >
               Avbryt
             </button>
@@ -372,14 +375,14 @@ export default function ProjectModal({
               onClick={handleCreateProject}
               disabled={!newProject.name.trim()}
               className={clsx(
-                'flex items-center gap-2 px-4 py-2 rounded-lg transition-colors',
+                'flex items-center gap-2 rounded-lg px-4 py-2 transition-colors',
                 newProject.name.trim()
                   ? 'bg-blue-600 text-white hover:bg-blue-700'
-                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                  : 'cursor-not-allowed bg-gray-200 text-gray-400'
               )}
             >
               <Check size={18} />
-              Opprett og tildel
+              {createSubmitLabel}
             </button>
           </div>
         )}

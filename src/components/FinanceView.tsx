@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/store/useStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import { Project, Worker } from '@/types';
 import { formatCurrency, parseISO, eachDayOfInterval, formatDateNorwegian } from '@/utils/dates';
 import { Check, X, DollarSign, TrendingUp, Trash2, Plus, User, ChevronDown } from 'lucide-react';
@@ -111,6 +112,8 @@ const PROJECT_COLORS = [
 
 export default function FinanceView() {
   const { projects, assignments, workers, updateProject, deleteProject, addProject, getProjectFinance, getTotalOrdrereserve } = useStore();
+  const user = useAuthStore((state) => state.user);
+  const isAdminUser = user?.role === 'admin';
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editField, setEditField] = useState<'akonto' | 'amount' | 'fakturert' | 'startDate' | 'duration' | null>(null);
   const [editValue, setEditValue] = useState<string>('');
@@ -141,9 +144,19 @@ export default function FinanceView() {
   // Get all project leaders
   const projectLeaders = workers.filter(w => w.role === 'prosjektleder');
 
-  // Only show regular projects in finance (exclude sick_leave and vacation)
-  const activeProjects = projects.filter(p => p.status === 'active' && p.projectType === 'regular');
-  const completedProjects = projects.filter(p => p.status === 'completed' && p.projectType === 'regular');
+  // Only show complete finance projects in finance (exclude placeholders, sick leave, and vacation)
+  const activeProjects = projects.filter(
+    (project) =>
+      project.status === 'active' &&
+      project.projectType === 'regular' &&
+      !project.isPlaceholder
+  );
+  const completedProjects = projects.filter(
+    (project) =>
+      project.status === 'completed' &&
+      project.projectType === 'regular' &&
+      !project.isPlaceholder
+  );
 
   // Separate unassigned projects from assigned ones
   const unassignedProjects = useMemo(() => {
@@ -212,6 +225,10 @@ export default function FinanceView() {
   }, [activeProjects, assignments]);
 
   const handleEdit = (projectId: string, field: 'akonto' | 'amount' | 'fakturert' | 'startDate' | 'duration', currentValue: number | string) => {
+    if (!isAdminUser && (field === 'akonto' || field === 'amount' || field === 'fakturert')) {
+      return;
+    }
+
     setEditingId(projectId);
     setEditField(field);
     if (field === 'startDate') {
@@ -222,6 +239,11 @@ export default function FinanceView() {
   };
 
   const handleSave = (projectId: string) => {
+    if (!isAdminUser && (editField === 'akonto' || editField === 'amount' || editField === 'fakturert')) {
+      handleCancel();
+      return;
+    }
+
     const numValue = editValue === '' ? 0 : Number(editValue);
     const project = projects.find(p => p.id === projectId);
     
@@ -261,37 +283,42 @@ export default function FinanceView() {
   };
 
   const handleCreateProject = async () => {
-    if (newProject.name.trim()) {
-      await addProject({
-        name: newProject.name.trim(),
-        description: newProject.description.trim(),
-        color: newProject.color,
-        amount: newProject.amount === '' ? 0 : Number(newProject.amount),
-        aKontoPercent: 0,
-        fakturert: 0,
-        billingType: newProject.billingType,
-        status: 'active',
-        projectType: 'regular',
-        isSystem: false,
-        projectLeaderId: newProject.projectLeaderId || undefined,
-        plannedStartDate: newProject.plannedStartDate || undefined,
-        durationDays: newProject.durationDays === '' ? undefined : Number(newProject.durationDays),
-      });
-      setNewProject({
-        name: '',
-        description: '',
-        color: PROJECT_COLORS[Math.floor(Math.random() * PROJECT_COLORS.length)],
-        amount: '',
-        projectLeaderId: '',
-        billingType: 'tilbud',
-        plannedStartDate: '',
-        durationDays: '',
-      });
-      setShowCreateModal(false);
+    if (!isAdminUser || !newProject.name.trim()) {
+      return;
     }
+
+    await addProject({
+      name: newProject.name.trim(),
+      description: newProject.description.trim(),
+      color: newProject.color,
+      amount: newProject.amount === '' ? 0 : Number(newProject.amount),
+      aKontoPercent: 0,
+      fakturert: 0,
+      billingType: newProject.billingType,
+      status: 'active',
+      projectType: 'regular',
+      isSystem: false,
+      isPlaceholder: false,
+      projectLeaderId: newProject.projectLeaderId || undefined,
+      plannedStartDate: newProject.plannedStartDate || undefined,
+      durationDays: newProject.durationDays === '' ? undefined : Number(newProject.durationDays),
+    });
+    setNewProject({
+      name: '',
+      description: '',
+      color: PROJECT_COLORS[Math.floor(Math.random() * PROJECT_COLORS.length)],
+      amount: '',
+      projectLeaderId: '',
+      billingType: 'tilbud',
+      plannedStartDate: '',
+      durationDays: '',
+    });
+    setShowCreateModal(false);
   };
 
   const handleAssignLeader = (projectId: string, leaderId: string | null) => {
+    if (!isAdminUser) return;
+
     // When unassigning (null), pass empty string - store will convert to null in DB
     // This is type-safe since projectLeaderId is string | undefined
     updateProject(projectId, { 
@@ -301,6 +328,8 @@ export default function FinanceView() {
   };
 
   const handleOpenLeaderDropdown = (projectId: string, buttonRef: HTMLButtonElement | null) => {
+    if (!isAdminUser) return;
+
     if (assigningLeader?.projectId === projectId) {
       setAssigningLeader(null);
     } else {
@@ -326,13 +355,15 @@ export default function FinanceView() {
           </div>
           
           {/* Create Project Button */}
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Plus size={20} />
-            Nytt prosjekt
-          </button>
+          {isAdminUser && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700"
+            >
+              <Plus size={20} />
+              Nytt prosjekt
+            </button>
+          )}
         </div>
 
         {/* Unassigned Projects Section - Separate box at top */}
@@ -373,14 +404,18 @@ export default function FinanceView() {
                       )}
                     >
                       <td className="px-4 py-4">
-                        <button
-                          onClick={(e) => handleOpenLeaderDropdown(project.id, e.currentTarget)}
-                          className="flex items-center gap-1 text-sm px-2 py-1 rounded text-amber-700 hover:text-amber-800 hover:bg-gray-100 font-medium"
-                        >
-                          <User size={14} />
-                          <span>Velg...</span>
-                          <ChevronDown size={14} />
-                        </button>
+                        {isAdminUser ? (
+                          <button
+                            onClick={(e) => handleOpenLeaderDropdown(project.id, e.currentTarget)}
+                            className="flex items-center gap-1 text-sm px-2 py-1 rounded text-amber-700 hover:text-amber-800 hover:bg-gray-100 font-medium"
+                          >
+                            <User size={14} />
+                            <span>Velg...</span>
+                            <ChevronDown size={14} />
+                          </button>
+                        ) : (
+                          <span className="text-sm text-gray-500">-</span>
+                        )}
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex items-center gap-3">
@@ -407,9 +442,11 @@ export default function FinanceView() {
                       <td 
                         className={clsx(
                           "px-4 py-4 text-right",
-                          !(editingId === project.id && editField === 'amount') && "cursor-pointer hover:bg-gray-100"
+                          isAdminUser &&
+                            !(editingId === project.id && editField === 'amount') &&
+                            "cursor-pointer hover:bg-gray-100"
                         )}
-                        onClick={() => !(editingId === project.id && editField === 'amount') && handleEdit(project.id, 'amount', project.amount)}
+                        onClick={() => isAdminUser && !(editingId === project.id && editField === 'amount') && handleEdit(project.id, 'amount', project.amount)}
                       >
                         {(editingId === project.id && editField === 'amount') ? (
                           <div className="flex items-center justify-end gap-2">
@@ -446,9 +483,12 @@ export default function FinanceView() {
                       <td 
                         className={clsx(
                           "px-4 py-4 text-right",
-                          project.billingType === 'tilbud' && !(editingId === project.id && editField === 'akonto') && "cursor-pointer hover:bg-gray-100"
+                          isAdminUser &&
+                            project.billingType === 'tilbud' &&
+                            !(editingId === project.id && editField === 'akonto') &&
+                            "cursor-pointer hover:bg-gray-100"
                         )}
-                        onClick={() => project.billingType === 'tilbud' && !(editingId === project.id && editField === 'akonto') && handleEdit(project.id, 'akonto', project.aKontoPercent)}
+                        onClick={() => isAdminUser && project.billingType === 'tilbud' && !(editingId === project.id && editField === 'akonto') && handleEdit(project.id, 'akonto', project.aKontoPercent)}
                       >
                         {project.billingType === 'timer_materiell' ? (
                           <span className="text-gray-400">-</span>
@@ -489,9 +529,12 @@ export default function FinanceView() {
                       <td 
                         className={clsx(
                           "px-4 py-4 text-right font-medium text-green-600",
-                          project.billingType === 'timer_materiell' && !(editingId === project.id && editField === 'fakturert') && "cursor-pointer hover:bg-gray-100"
+                          isAdminUser &&
+                            project.billingType === 'timer_materiell' &&
+                            !(editingId === project.id && editField === 'fakturert') &&
+                            "cursor-pointer hover:bg-gray-100"
                         )}
-                        onClick={() => project.billingType === 'timer_materiell' && !(editingId === project.id && editField === 'fakturert') && handleEdit(project.id, 'fakturert', project.fakturert)}
+                        onClick={() => isAdminUser && project.billingType === 'timer_materiell' && !(editingId === project.id && editField === 'fakturert') && handleEdit(project.id, 'fakturert', project.fakturert)}
                       >
                         {(editingId === project.id && editField === 'fakturert') ? (
                           <div className="flex items-center justify-end gap-2">
@@ -667,7 +710,11 @@ export default function FinanceView() {
             <div className="text-center py-12 text-gray-500">
               <DollarSign size={48} className="mx-auto mb-4 opacity-50" />
               <p>Ingen aktive prosjekter.</p>
-              <p className="text-sm">Klikk &quot;Nytt prosjekt&quot; for å opprette et prosjekt.</p>
+              <p className="text-sm">
+                {isAdminUser
+                  ? 'Klikk "Nytt prosjekt" for å opprette et prosjekt.'
+                  : 'Opprett aktiviteter fra Kalender når du vil planlegge nytt arbeid.'}
+              </p>
             </div>
           ) : groupedProjects.length > 0 ? (
             <div className="overflow-x-auto">
@@ -713,28 +760,32 @@ export default function FinanceView() {
                           )}
                         >
                           <td className="px-4 py-4">
-                            <button
-                              onClick={(e) => handleOpenLeaderDropdown(project.id, e.currentTarget)}
-                              className={clsx(
-                                "flex items-center gap-1 text-sm px-2 py-1 rounded",
-                                group.leader 
-                                  ? "text-gray-500 hover:text-blue-600 hover:bg-blue-50"
-                                  : "text-blue-600 hover:text-blue-700 hover:bg-blue-50 font-medium"
-                              )}
-                            >
-                              {group.leader ? (
-                                <>
-                                  <span className="text-gray-400">Endre</span>
-                                  <ChevronDown size={14} />
-                                </>
-                              ) : (
-                                <>
-                                  <User size={14} />
-                                  <span>Velg...</span>
-                                  <ChevronDown size={14} />
-                                </>
-                              )}
-                            </button>
+                            {isAdminUser ? (
+                              <button
+                                onClick={(e) => handleOpenLeaderDropdown(project.id, e.currentTarget)}
+                                className={clsx(
+                                  "flex items-center gap-1 text-sm px-2 py-1 rounded",
+                                  group.leader 
+                                    ? "text-gray-500 hover:text-blue-600 hover:bg-blue-50"
+                                    : "text-blue-600 hover:text-blue-700 hover:bg-blue-50 font-medium"
+                                )}
+                              >
+                                {group.leader ? (
+                                  <>
+                                    <span className="text-gray-400">Endre</span>
+                                    <ChevronDown size={14} />
+                                  </>
+                                ) : (
+                                  <>
+                                    <User size={14} />
+                                    <span>Velg...</span>
+                                    <ChevronDown size={14} />
+                                  </>
+                                )}
+                              </button>
+                            ) : (
+                              <span className="text-sm text-gray-500">{group.leader.name}</span>
+                            )}
                           </td>
                           <td className="px-4 py-4">
                             <div className="flex items-center gap-3">
@@ -761,9 +812,11 @@ export default function FinanceView() {
                           <td 
                             className={clsx(
                               "px-4 py-4 text-right",
-                              !(editingId === project.id && editField === 'amount') && "cursor-pointer hover:bg-blue-50"
+                              isAdminUser &&
+                                !(editingId === project.id && editField === 'amount') &&
+                                "cursor-pointer hover:bg-blue-50"
                             )}
-                            onClick={() => !(editingId === project.id && editField === 'amount') && handleEdit(project.id, 'amount', project.amount)}
+                            onClick={() => isAdminUser && !(editingId === project.id && editField === 'amount') && handleEdit(project.id, 'amount', project.amount)}
                           >
                             {(editingId === project.id && editField === 'amount') ? (
                               <div className="flex items-center justify-end gap-2">
@@ -800,9 +853,12 @@ export default function FinanceView() {
                           <td 
                             className={clsx(
                               "px-4 py-4 text-right",
-                              project.billingType === 'tilbud' && !(editingId === project.id && editField === 'akonto') && "cursor-pointer hover:bg-blue-50"
+                              isAdminUser &&
+                                project.billingType === 'tilbud' &&
+                                !(editingId === project.id && editField === 'akonto') &&
+                                "cursor-pointer hover:bg-blue-50"
                             )}
-                            onClick={() => project.billingType === 'tilbud' && !(editingId === project.id && editField === 'akonto') && handleEdit(project.id, 'akonto', project.aKontoPercent)}
+                            onClick={() => isAdminUser && project.billingType === 'tilbud' && !(editingId === project.id && editField === 'akonto') && handleEdit(project.id, 'akonto', project.aKontoPercent)}
                           >
                             {project.billingType === 'timer_materiell' ? (
                               <span className="text-gray-400">-</span>
@@ -843,9 +899,12 @@ export default function FinanceView() {
                           <td 
                             className={clsx(
                               "px-4 py-4 text-right font-medium text-green-600",
-                              project.billingType === 'timer_materiell' && !(editingId === project.id && editField === 'fakturert') && "cursor-pointer hover:bg-blue-50"
+                              isAdminUser &&
+                                project.billingType === 'timer_materiell' &&
+                                !(editingId === project.id && editField === 'fakturert') &&
+                                "cursor-pointer hover:bg-blue-50"
                             )}
-                            onClick={() => project.billingType === 'timer_materiell' && !(editingId === project.id && editField === 'fakturert') && handleEdit(project.id, 'fakturert', project.fakturert)}
+                            onClick={() => isAdminUser && project.billingType === 'timer_materiell' && !(editingId === project.id && editField === 'fakturert') && handleEdit(project.id, 'fakturert', project.fakturert)}
                           >
                             {(editingId === project.id && editField === 'fakturert') ? (
                               <div className="flex items-center justify-end gap-2">
@@ -1081,7 +1140,7 @@ export default function FinanceView() {
       </div>
 
       {/* Create Project Modal */}
-      {showCreateModal && (
+      {isAdminUser && showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowCreateModal(false)}>
           <div 
             className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden"
@@ -1253,7 +1312,7 @@ export default function FinanceView() {
       )}
 
       {/* Leader selection dropdown - rendered via portal */}
-      {assigningLeader && (
+      {isAdminUser && assigningLeader && (
         <LeaderDropdown
           buttonRef={assigningLeader.buttonRef}
           leaders={projectLeaders}
