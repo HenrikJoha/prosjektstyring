@@ -104,6 +104,13 @@ export interface DbProjectAssignment {
   updated_at: string;
 }
 
+export interface DbProjectLeaderCalendarLink {
+  id: string;
+  project_leader_a_id: string;
+  project_leader_b_id: string;
+  created_at: string;
+}
+
 export interface DbAppUser {
   id: string;
   username: string;

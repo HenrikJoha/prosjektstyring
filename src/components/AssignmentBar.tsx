@@ -29,6 +29,7 @@ interface AssignmentBarProps {
   systemBarLaneStart?: number;
   /** When isSystemBar: number of lanes to span. */
   systemBarLaneCount?: number;
+  canEditAssignment?: boolean;
 }
 
 const DRAG_THRESHOLD = 5;
@@ -49,6 +50,7 @@ export default function AssignmentBar({
   isSystemBar = false,
   systemBarLaneStart = 0,
   systemBarLaneCount = 1,
+  canEditAssignment = true,
 }: AssignmentBarProps) {
   const { updateAssignment, updateAssignmentAndSplit } = useStore();
   const effectiveStart = segmentStartDate ?? assignment.startDate;
@@ -223,6 +225,7 @@ export default function AssignmentBar({
   // ===== MOUSE HANDLERS (Desktop) =====
 
   const handleMouseDown = useCallback((e: React.MouseEvent, type: 'drag' | 'resize-left' | 'resize-right' = 'drag') => {
+    if (!canEditAssignment) return;
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
@@ -248,7 +251,7 @@ export default function AssignmentBar({
     } else {
       setIsResizing(type === 'resize-left' ? 'left' : 'right');
     }
-  }, [style.left, getBarDuration, effectiveStart, effectiveEnd]);
+  }, [canEditAssignment, style.left, getBarDuration, effectiveStart, effectiveEnd]);
 
   // Global mouse move/up handlers
   useEffect(() => {
@@ -275,6 +278,7 @@ export default function AssignmentBar({
   // ===== TOUCH HANDLERS (Mobile) =====
 
   const handleTouchStart = useCallback((e: React.TouchEvent, type: 'drag' | 'resize-left' | 'resize-right' = 'drag') => {
+    if (!canEditAssignment) return;
     e.stopPropagation();
     
     const touch = e.touches[0];
@@ -327,7 +331,7 @@ export default function AssignmentBar({
       // Vibrate to give feedback
       if (navigator.vibrate) navigator.vibrate(50);
     }, TOUCH_HOLD_DELAY);
-  }, [style.left, getBarDuration, effectiveStart, effectiveEnd]);
+  }, [canEditAssignment, style.left, getBarDuration, effectiveStart, effectiveEnd]);
 
   // Global touch move/end handlers - attach immediately when touch pending or active
   useEffect(() => {
@@ -443,35 +447,41 @@ export default function AssignmentBar({
           height: barHeight,
           backgroundColor: barColor,
           color: textColor,
-          cursor: isDragging ? 'move' : 'pointer',
+          cursor: canEditAssignment ? (isDragging ? 'move' : 'pointer') : 'default',
           touchAction: touchHoldActive ? 'none' : 'auto',
         }}
         onDoubleClick={handleDoubleClick}
-        title="Dobbeltklikk for å redigere"
+        title={canEditAssignment ? 'Dobbeltklikk for å redigere' : 'Dobbeltklikk for å vise detaljer'}
       >
         {/* Resize handle left */}
-        <div
-          className="resize-handle resize-handle-left"
-          onMouseDown={(e) => handleMouseDown(e, 'resize-left')}
-          onTouchStart={(e) => handleTouchStart(e, 'resize-left')}
-        />
+        {canEditAssignment && (
+          <div
+            className="resize-handle resize-handle-left"
+            onMouseDown={(e) => handleMouseDown(e, 'resize-left')}
+            onTouchStart={(e) => handleTouchStart(e, 'resize-left')}
+          />
+        )}
 
         {/* Content area - draggable */}
         <div
           className="flex items-center h-full px-3 gap-1 cursor-pointer"
-          onMouseDown={(e) => handleMouseDown(e, 'drag')}
-          onTouchStart={(e) => handleTouchStart(e, 'drag')}
+          onMouseDown={(e) => canEditAssignment && handleMouseDown(e, 'drag')}
+          onTouchStart={(e) => canEditAssignment && handleTouchStart(e, 'drag')}
         >
-          <GripVertical size={14} className="flex-shrink-0 opacity-50 hidden sm:block" />
+          {canEditAssignment && (
+            <GripVertical size={14} className="flex-shrink-0 opacity-50 hidden sm:block" />
+          )}
           <span className="text-sm font-medium truncate">{project.name}</span>
         </div>
 
         {/* Resize handle right */}
-        <div
-          className="resize-handle resize-handle-right"
-          onMouseDown={(e) => handleMouseDown(e, 'resize-right')}
-          onTouchStart={(e) => handleTouchStart(e, 'resize-right')}
-        />
+        {canEditAssignment && (
+          <div
+            className="resize-handle resize-handle-right"
+            onMouseDown={(e) => handleMouseDown(e, 'resize-right')}
+            onTouchStart={(e) => handleTouchStart(e, 'resize-right')}
+          />
+        )}
       </div>
 
       {/* Edit Project Modal */}
@@ -479,6 +489,7 @@ export default function AssignmentBar({
         <EditProjectModal
           project={project}
           assignment={assignment}
+          canManageAssignment={canEditAssignment}
           onClose={() => setShowEditModal(false)}
         />,
         document.body

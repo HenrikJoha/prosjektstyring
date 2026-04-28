@@ -196,7 +196,7 @@ function calculateSegmentLanes(
 }
 
 export default function ScheduleView() {
-  const { workers, projects, assignments, addAssignment } = useStore();
+  const { workers, projects, assignments, addAssignment, editableWorkerIds } = useStore();
   const [startDate, setStartDate] = useState(() => startOfDay(new Date()));
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<{ workerId: string; date: string } | null>(null);
@@ -213,6 +213,7 @@ export default function ScheduleView() {
 
   const weeks = useMemo(() => generateWeeks(startDate, WEEKS_TO_SHOW), [startDate]);
   const allDays = useMemo(() => weeks.flatMap(w => w.days), [weeks]);
+  const editableWorkerIdSet = useMemo(() => new Set(editableWorkerIds), [editableWorkerIds]);
   
   // Calculate month spans for header and track month boundaries
   const { monthSpans, weekMonthBoundary } = useMemo(() => {
@@ -303,10 +304,11 @@ export default function ScheduleView() {
 
   // Handle drag selection for creating assignments
   const handleMouseDown = useCallback((workerId: string, dateString: string) => {
+    if (!editableWorkerIdSet.has(workerId)) return;
     setIsDragging(true);
     setDragStart({ workerId, date: dateString });
     setDragEnd(dateString);
-  }, []);
+  }, [editableWorkerIdSet]);
 
   const handleMouseMove = useCallback((dateString: string) => {
     if (isDragging && dragStart) {
@@ -335,6 +337,7 @@ export default function ScheduleView() {
 
   // Touch handlers for mobile with long press
   const handleTouchStart = useCallback((workerId: string, dateString: string, e: React.TouchEvent) => {
+    if (!editableWorkerIdSet.has(workerId)) return;
     const touch = e.touches[0];
     touchStartPosRef.current = { x: touch.clientX, y: touch.clientY, workerId, date: dateString };
     
@@ -347,7 +350,7 @@ export default function ScheduleView() {
       // Vibrate to indicate activation
       if (navigator.vibrate) navigator.vibrate(50);
     }, LONG_PRESS_DURATION);
-  }, []);
+  }, [editableWorkerIdSet]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     const touch = e.touches[0];
@@ -617,6 +620,7 @@ export default function ScheduleView() {
                 {group.members.map((worker, memberIdx) => {
                   const workerSegments = getWorkerSegmentsForWorker(worker.id);
                   const isLeader = worker.role === 'prosjektleder';
+                  const canEditWorker = editableWorkerIdSet.has(worker.id);
                   const rowHeight = getWorkerRowHeight(worker.id);
                   const laneInfo = workerLaneInfo.get(worker.id);
 
@@ -625,7 +629,13 @@ export default function ScheduleView() {
                       key={worker.id}
                       className={clsx(
                         'flex',
-                        isLeader ? 'bg-blue-50/30' : 'bg-gray-200'
+                        canEditWorker
+                          ? isLeader
+                            ? 'bg-blue-50/30'
+                            : 'bg-gray-200'
+                          : isLeader
+                            ? 'bg-slate-50'
+                            : 'bg-slate-100'
                       )}
                       style={{ height: rowHeight }}
                     >
@@ -633,11 +643,15 @@ export default function ScheduleView() {
                       <div className="w-48 flex-shrink-0 px-4 flex items-center gap-2 border-r border-gray-200">
                         <div className={clsx(
                           'w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-medium flex-shrink-0',
-                          isLeader ? 'bg-blue-600' : 'bg-gray-500'
+                          canEditWorker
+                            ? isLeader
+                              ? 'bg-blue-600'
+                              : 'bg-gray-500'
+                            : 'bg-slate-400'
                         )}>
                           {worker.name.substring(0, 2).toUpperCase()}
                         </div>
-                        <div className="flex items-center gap-1.5 truncate">
+                        <div className="min-w-0 flex flex-col items-start">
                           <span className="font-medium text-sm text-gray-900 truncate">{worker.name}</span>
                           <span className="text-xs text-gray-500 flex-shrink-0">
                             {isLeader ? 'Prosjektleder' : 'Tømrer'}
@@ -659,7 +673,8 @@ export default function ScheduleView() {
                                   key={day.dateString}
                                   data-date={day.dateString}
                                   className={clsx(
-                                    'calendar-cell cursor-crosshair',
+                                    'calendar-cell',
+                                    canEditWorker ? 'cursor-crosshair' : 'cursor-default',
                                     // Today cells: seamless column
                                     isToday && !isSelected && 'bg-gray-300 border-r border-gray-300',
                                     // Regular cells: normal borders
@@ -672,9 +687,9 @@ export default function ScheduleView() {
                                     isLastDayOfWeek && weekIdx < weeks.length - 1 && 'border-r-2 border-r-gray-300'
                                   )}
                                   style={{ width: CELL_WIDTH, height: rowHeight }}
-                                  onMouseDown={() => handleMouseDown(worker.id, day.dateString)}
-                                  onMouseMove={() => handleMouseMove(day.dateString)}
-                                  onTouchStart={(e) => handleTouchStart(worker.id, day.dateString, e)}
+                                  onMouseDown={() => canEditWorker && handleMouseDown(worker.id, day.dateString)}
+                                  onMouseMove={() => canEditWorker && handleMouseMove(day.dateString)}
+                                  onTouchStart={(e) => canEditWorker && handleTouchStart(worker.id, day.dateString, e)}
                                   onTouchMove={handleTouchMove}
                                   onTouchEnd={handleTouchEnd}
                                 />
@@ -708,6 +723,7 @@ export default function ScheduleView() {
                               isSystemBar={segmentLaneInfo?.isSystemBar ?? false}
                               systemBarLaneStart={segmentLaneInfo?.systemBarLaneStart ?? 0}
                               systemBarLaneCount={segmentLaneInfo?.systemBarLaneCount ?? 1}
+                              canEditAssignment={canEditWorker}
                             />
                           );
                         })}

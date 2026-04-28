@@ -29,21 +29,24 @@ const PROJECT_COLORS = [
 interface EditProjectModalProps {
   project: Project;
   assignment?: ProjectAssignment;
+  canManageAssignment?: boolean;
   onClose: () => void;
 }
 
 export default function EditProjectModal({
   project,
   assignment,
+  canManageAssignment = true,
   onClose,
 }: EditProjectModalProps) {
   const { updateProject, deleteAssignment, isAdmin, currentUserWorkerId } = useStore();
   const user = useAuthStore((state) => state.user);
   const isAdminUser = isAdmin || user?.role === 'admin';
-  const canEditProject =
-    !project.isSystem &&
-    (isAdminUser || project.projectLeaderId === currentUserWorkerId);
+  const ownsProject = isAdminUser || project.projectLeaderId === currentUserWorkerId;
+  const canEditProject = !project.isSystem && canManageAssignment && ownsProject;
   const canEditFinanceFields = canEditProject && isAdminUser;
+  const canRemoveAssignment = !!assignment && canManageAssignment;
+  const isLinkedReadOnly = !canManageAssignment && !!assignment;
 
   const [formData, setFormData] = useState({
     name: project.name,
@@ -73,7 +76,7 @@ export default function EditProjectModal({
   };
 
   const handleRemoveAssignment = () => {
-    if (assignment) {
+    if (assignment && canRemoveAssignment) {
       deleteAssignment(assignment.id);
     }
     onClose();
@@ -91,7 +94,7 @@ export default function EditProjectModal({
   const modalTitle = project.isSystem
     ? project.name
     : project.isPlaceholder
-      ? isAdminUser
+      ? isAdminUser && canManageAssignment
         ? 'Gjør om aktivitet til prosjekt'
         : 'Rediger aktivitet'
       : 'Rediger prosjekt';
@@ -133,11 +136,27 @@ export default function EditProjectModal({
                 <Calendar size={32} className="text-white" />
               </div>
               <p className="text-gray-600">Dette er en systemoppføring som ikke kan redigeres.</p>
-              {assignment && (
+              {canRemoveAssignment && (
                 <p className="mt-2 text-sm text-gray-500">
                   Du kan fjerne denne tildelingen fra kalenderen.
                 </p>
               )}
+            </div>
+          ) : isLinkedReadOnly ? (
+            <div className="py-4 text-center">
+              <div
+                className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full"
+                style={{ backgroundColor: project.color }}
+              >
+                <Calendar size={32} className="text-white" />
+              </div>
+              <h3 className="mb-2 font-semibold text-gray-900">{project.name}</h3>
+              {project.description && (
+                <p className="mb-2 text-sm text-gray-600">{project.description}</p>
+              )}
+              <p className="text-sm text-gray-500">
+                Denne kalenderoppføringen ligger på et koblet team og er skrivebeskyttet for deg.
+              </p>
             </div>
           ) : !canEditProject ? (
             <div className="py-4 text-center">
@@ -154,9 +173,9 @@ export default function EditProjectModal({
               <p className="text-sm text-gray-500">
                 Dette prosjektet tilhører en annen prosjektleder.
               </p>
-              {assignment && (
+              {canRemoveAssignment && (
                 <p className="mt-2 text-sm text-gray-500">
-                  Du kan fjerne din tildeling fra kalenderen.
+                  Du kan fjerne denne tildelingen fra kalenderen.
                 </p>
               )}
             </div>
@@ -261,7 +280,7 @@ export default function EditProjectModal({
         </div>
 
         <div className="space-y-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
-          {showRemoveConfirm && assignment && (
+          {showRemoveConfirm && canRemoveAssignment && (
             <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-4">
               <p className="mb-3 text-sm text-red-800">
                 Er du sikker på at du vil fjerne denne tildelingen fra kalenderen?
@@ -283,17 +302,15 @@ export default function EditProjectModal({
             </div>
           )}
 
-          {!showRemoveConfirm && (
+          {!showRemoveConfirm && canRemoveAssignment && (
             <div className="flex flex-col gap-2">
-              {assignment && (
-                <button
-                  onClick={() => setShowRemoveConfirm(true)}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-50 px-4 py-2 text-red-600 transition-colors hover:bg-red-100"
-                >
-                  <Trash2 size={18} />
-                  Fjern fra kalender
-                </button>
-              )}
+              <button
+                onClick={() => setShowRemoveConfirm(true)}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-50 px-4 py-2 text-red-600 transition-colors hover:bg-red-100"
+              >
+                <Trash2 size={18} />
+                Fjern fra kalender
+              </button>
             </div>
           )}
 

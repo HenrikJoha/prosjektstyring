@@ -8,7 +8,14 @@ import { Plus, Trash2, Edit2, Check, X, Users, UserPlus, Key, Link2, AlertCircle
 import clsx from 'clsx';
 
 export default function WorkersView() {
-  const { workers, addWorker, updateWorker, deleteWorker } = useStore();
+  const {
+    workers,
+    addWorker,
+    updateWorker,
+    deleteWorker,
+    projectLeaderCalendarLinks,
+    setProjectLeaderCalendarLinks,
+  } = useStore();
   const { createUser, deleteUser, getUsers, linkUserToWorker, setUserPassword, error: authError } = useAuthStore();
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -31,6 +38,8 @@ export default function WorkersView() {
 
   // Delete app user confirmation modal (Brukeradministrasjon)
   const [userToDelete, setUserToDelete] = useState<AppUser | null>(null);
+  const [linkingLeaderId, setLinkingLeaderId] = useState<string | null>(null);
+  const [selectedLinkedLeaderIds, setSelectedLinkedLeaderIds] = useState<string[]>([]);
 
   // Load users when user management is opened
   useEffect(() => {
@@ -112,6 +121,51 @@ export default function WorkersView() {
 
   const projectLeaders = workers.filter(w => w.role === 'prosjektleder');
   const carpenters = workers.filter(w => w.role === 'tømrer');
+
+  const getDirectLinkedLeaderIds = (leaderId: string) =>
+    projectLeaderCalendarLinks.reduce<string[]>((ids, link) => {
+      if (link.projectLeaderAId === leaderId) {
+        ids.push(link.projectLeaderBId);
+      } else if (link.projectLeaderBId === leaderId) {
+        ids.push(link.projectLeaderAId);
+      }
+      return ids;
+    }, []);
+
+  const getLinkedLeaderSummary = (leaderId: string) => {
+    const linkedLeaderNames = getDirectLinkedLeaderIds(leaderId)
+      .map((linkedLeaderId) => workers.find((worker) => worker.id === linkedLeaderId)?.name)
+      .filter((name): name is string => Boolean(name));
+
+    return linkedLeaderNames.length > 0
+      ? `Direkte koblet med: ${linkedLeaderNames.join(', ')}`
+      : 'Ingen direkte kalenderkoblinger';
+  };
+
+  const handleManageLinks = (leader: Worker) => {
+    setLinkingLeaderId(leader.id);
+    setSelectedLinkedLeaderIds(getDirectLinkedLeaderIds(leader.id));
+  };
+
+  const handleToggleLeaderLink = (linkedLeaderId: string) => {
+    setSelectedLinkedLeaderIds((current) =>
+      current.includes(linkedLeaderId)
+        ? current.filter((id) => id !== linkedLeaderId)
+        : [...current, linkedLeaderId]
+    );
+  };
+
+  const handleSaveLeaderLinks = async () => {
+    if (!linkingLeaderId) return;
+    await setProjectLeaderCalendarLinks(linkingLeaderId, selectedLinkedLeaderIds);
+    setLinkingLeaderId(null);
+    setSelectedLinkedLeaderIds([]);
+  };
+
+  const handleCancelLeaderLinks = () => {
+    setLinkingLeaderId(null);
+    setSelectedLinkedLeaderIds([]);
+  };
 
   const handleAdd = () => {
     if (newWorker.name.trim()) {
@@ -511,8 +565,66 @@ export default function WorkersView() {
                   onSave={() => handleSaveEdit(leader.id)}
                   onCancel={() => setEditingId(null)}
                   onDelete={() => setWorkerToDelete(leader)}
+                  onManageLinks={() => handleManageLinks(leader)}
+                  linkSummary={getLinkedLeaderSummary(leader.id)}
+                  isManagingLinks={linkingLeaderId === leader.id}
                   isLeader
                 />
+
+                {linkingLeaderId === leader.id && (
+                  <div className="border-t border-blue-100 bg-blue-50/60 p-4">
+                    <h4 className="mb-2 text-sm font-semibold text-blue-900">
+                      Kalendersamarbeid for {leader.name}
+                    </h4>
+                    <p className="mb-4 text-sm text-blue-800">
+                      Velg prosjektledere som skal dele kalender med {leader.name}. Eksempel:
+                      hvis du velger Wim og Alexander her, kan alle tre se hverandres team i
+                      Kalender, men fortsatt bare redigere sitt eget team.
+                    </p>
+
+                    <div className="space-y-2">
+                      {projectLeaders
+                        .filter((otherLeader) => otherLeader.id !== leader.id)
+                        .map((otherLeader) => (
+                          <label
+                            key={otherLeader.id}
+                            className="flex items-center gap-3 rounded-lg border border-blue-100 bg-white px-3 py-2 text-sm text-gray-700"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedLinkedLeaderIds.includes(otherLeader.id)}
+                              onChange={() => handleToggleLeaderLink(otherLeader.id)}
+                              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <span>{otherLeader.name}</span>
+                          </label>
+                        ))}
+                    </div>
+
+                    {projectLeaders.length <= 1 && (
+                      <p className="text-sm text-blue-700">
+                        Legg til flere prosjektledere for å kunne opprette kalendersamarbeid.
+                      </p>
+                    )}
+
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        onClick={handleSaveLeaderLinks}
+                        className="flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-white hover:bg-blue-700"
+                      >
+                        <Check size={16} />
+                        Lagre koblinger
+                      </button>
+                      <button
+                        onClick={handleCancelLeaderLinks}
+                        className="flex items-center gap-1 rounded-lg bg-white px-3 py-2 text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50"
+                      >
+                        <X size={16} />
+                        Avbryt
+                      </button>
+                    </div>
+                  </div>
+                )}
                 
                 {/* Carpenters under this leader */}
                 {carpenters.length > 0 && (
@@ -651,6 +763,9 @@ interface WorkerRowProps {
   onSave: () => void;
   onCancel: () => void;
   onDelete: () => void;
+  onManageLinks?: () => void;
+  linkSummary?: string;
+  isManagingLinks?: boolean;
   isLeader?: boolean;
   indented?: boolean;
 }
@@ -665,6 +780,9 @@ function WorkerRow({
   onSave,
   onCancel,
   onDelete,
+  onManageLinks,
+  linkSummary,
+  isManagingLinks,
   isLeader,
   indented,
 }: WorkerRowProps) {
@@ -748,9 +866,26 @@ function WorkerRow({
           <div className="text-sm text-gray-500">
             {worker.role === 'prosjektleder' ? 'Prosjektleder' : 'Tømrer'}
           </div>
+          {linkSummary && (
+            <div className="mt-1 text-xs text-blue-600">{linkSummary}</div>
+          )}
         </div>
       </div>
       <div className="flex items-center gap-2">
+        {onManageLinks && (
+          <button
+            onClick={onManageLinks}
+            className={clsx(
+              'p-2 rounded-lg transition-colors',
+              isManagingLinks
+                ? 'bg-blue-100 text-blue-700'
+                : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'
+            )}
+            title="Administrer kalendersamarbeid"
+          >
+            <Link2 size={18} />
+          </button>
+        )}
         <button
           onClick={onEdit}
           className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"

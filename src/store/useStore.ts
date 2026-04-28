@@ -1,6 +1,19 @@
 import { create } from 'zustand';
-import { Worker, Project, ProjectAssignment, DragSelection, BillingType } from '@/types';
-import { supabase, DbWorker, DbProject, DbProjectAssignment } from '@/lib/supabase';
+import {
+  Worker,
+  Project,
+  ProjectAssignment,
+  DragSelection,
+  BillingType,
+  ProjectLeaderCalendarLink,
+} from '@/types';
+import {
+  supabase,
+  DbWorker,
+  DbProject,
+  DbProjectAssignment,
+  DbProjectLeaderCalendarLink,
+} from '@/lib/supabase';
 import { parseISO, addDays, format, isWeekend } from 'date-fns';
 
 interface AppState {
@@ -8,11 +21,15 @@ interface AppState {
   workers: Worker[];
   projects: Project[];
   assignments: ProjectAssignment[];
+  projectLeaderCalendarLinks: ProjectLeaderCalendarLink[];
   isLoading: boolean;
 
   // Role info (from auth store, passed in on loadData)
   currentUserWorkerId: string | null;
   isAdmin: boolean;
+  editableWorkerIds: string[];
+  visibleCalendarWorkerIds: string[];
+  visibleFinanceProjectIds: string[];
 
   // UI State
   activeTab: 'schedule' | 'workers' | 'finance';
@@ -26,6 +43,7 @@ interface AppState {
   addWorker: (worker: Omit<Worker, 'id'>) => Promise<void>;
   updateWorker: (id: string, updates: Partial<Worker>) => Promise<void>;
   deleteWorker: (id: string) => Promise<void>;
+  setProjectLeaderCalendarLinks: (leaderId: string, linkedLeaderIds: string[]) => Promise<void>;
 
   // Project actions
   addProject: (project: Omit<Project, 'id' | 'createdAt'>) => Promise<string>;
@@ -52,6 +70,16 @@ interface AppState {
   // Computed
   getTotalOrdrereserve: () => number;
   getProjectFinance: (projectId: string) => { fakturert: number; ordrereserve: number };
+}
+
+interface ScopedStoreData {
+  workers: Worker[];
+  projects: Project[];
+  assignments: ProjectAssignment[];
+  projectLeaderCalendarLinks: ProjectLeaderCalendarLink[];
+  editableWorkerIds: string[];
+  visibleCalendarWorkerIds: string[];
+  visibleFinanceProjectIds: string[];
 }
 
 // Convert database types to app types
@@ -95,6 +123,215 @@ const dbAssignmentToAssignment = (db: DbProjectAssignment): ProjectAssignment =>
   endDate: db.end_date,
 });
 
+const dbCalendarLinkToCalendarLink = (
+  db: DbProjectLeaderCalendarLink
+): ProjectLeaderCalendarLink => ({
+  id: db.id,
+  projectLeaderAId: db.project_leader_a_id,
+  projectLeaderBId: db.project_leader_b_id,
+  createdAt: db.created_at,
+});
+
+const normalizeLeaderPair = (leaderId: string, otherLeaderId: string) => {
+  return leaderId < otherLeaderId
+    ? { projectLeaderAId: leaderId, projectLeaderBId: otherLeaderId }
+    : { projectLeaderAId: otherLeaderId, projectLeaderBId: leaderId };
+};
+
+const getLeaderPairKey = (pair: {
+  projectLeaderAId: string;
+  projectLeaderBId: string;
+}) => `${pair.projectLeaderAId}:${pair.projectLeaderBId}`;
+
+const getEditableWorkerIdsForLeader = (workers: Worker[], leaderId: string): string[] => {
+  const ids = new Set<string>([leaderId]);
+  workers.forEach((worker) => {
+    if (worker.role === 'tømrer' && worker.projectLeaderId === leaderId) {
+      ids.add(worker.id);
+    }
+  });
+  return Array.from(ids);
+};
+
+const getConnectedLeaderIds = (
+  workers: Worker[],
+  links: ProjectLeaderCalendarLink[],
+  leaderId: string
+): string[] => {
+  const leaderIds = new Set(
+    workers.filter((worker) => worker.role === 'prosjektleder').map((worker) => worker.id)
+  );
+
+  if (!leaderIds.has(leaderId)) {
+    return [leaderId];
+  }
+
+  const adjacency = new Map<string, Set<string>>();
+  leaderIds.forEach((id) => adjacency.set(id, new Set()));
+  links.forEach((link) => {
+    if (
+      !leaderIds.has(link.projectLeaderAId) ||
+      !leaderIds.has(link.projectLeaderBId)
+    ) {
+      return;
+    }
+    adjacency.get(link.projectLeaderAId)?.add(link.projectLeaderBId);
+    adjacency.get(link.projectLeaderBId)?.add(link.projectLeaderAId);
+  });
+
+  const visited = new Set<string>();
+  const queue = [leaderId];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || visited.has(current)) continue;
+    visited.add(current);
+    adjacency.get(current)?.forEach((neighbor) => {
+      if (!visited.has(neighbor)) {
+        queue.push(neighbor);
+      }
+    });
+  }
+
+  return Array.from(visited);
+};
+
+const getVisibleCalendarWorkerIdsForLeader = (
+  workers: Worker[],
+  leaderId: string,
+  links: ProjectLeaderCalendarLink[]
+): string[] => {
+  const connectedLeaderIds = new Set(getConnectedLeaderIds(workers, links, leaderId));
+  const visibleWorkerIds = new Set<string>();
+
+  workers.forEach((worker) => {
+    if (worker.role === 'prosjektleder' && connectedLeaderIds.has(worker.id)) {
+      visibleWorkerIds.add(worker.id);
+    }
+    if (
+      worker.role === 'tømrer' &&
+      worker.projectLeaderId &&
+      connectedLeaderIds.has(worker.projectLeaderId)
+    ) {
+      visibleWorkerIds.add(worker.id);
+    }
+  });
+
+  return Array.from(visibleWorkerIds);
+};
+
+const getVisibleFinanceProjectIdsForLeader = (
+  projects: Project[],
+  assignments: ProjectAssignment[],
+  editableWorkerIds: string[],
+  leaderId: string
+): string[] => {
+  const editableWorkerIdSet = new Set(editableWorkerIds);
+  const projectIds = new Set<string>();
+
+  assignments.forEach((assignment) => {
+    if (editableWorkerIdSet.has(assignment.workerId)) {
+      projectIds.add(assignment.projectId);
+    }
+  });
+
+  projects.forEach((project) => {
+    if (project.isSystem || project.projectLeaderId === leaderId) {
+      projectIds.add(project.id);
+    }
+  });
+
+  return Array.from(projectIds);
+};
+
+const buildScopedStoreData = ({
+  workers,
+  projects,
+  assignments,
+  links,
+  userWorkerId,
+  isAdmin,
+}: {
+  workers: Worker[];
+  projects: Project[];
+  assignments: ProjectAssignment[];
+  links: ProjectLeaderCalendarLink[];
+  userWorkerId?: string | null;
+  isAdmin: boolean;
+}): ScopedStoreData => {
+  if (isAdmin) {
+    const allWorkerIds = workers.map((worker) => worker.id);
+    const allProjectIds = projects.map((project) => project.id);
+    return {
+      workers,
+      projects,
+      assignments,
+      projectLeaderCalendarLinks: links,
+      editableWorkerIds: allWorkerIds,
+      visibleCalendarWorkerIds: allWorkerIds,
+      visibleFinanceProjectIds: allProjectIds,
+    };
+  }
+
+  if (!userWorkerId) {
+    return {
+      workers: [],
+      projects: [],
+      assignments: [],
+      projectLeaderCalendarLinks: [],
+      editableWorkerIds: [],
+      visibleCalendarWorkerIds: [],
+      visibleFinanceProjectIds: [],
+    };
+  }
+
+  const editableWorkerIds = getEditableWorkerIdsForLeader(workers, userWorkerId);
+  const visibleCalendarWorkerIds = getVisibleCalendarWorkerIdsForLeader(
+    workers,
+    userWorkerId,
+    links
+  );
+  const connectedLeaderIds = new Set(
+    workers
+      .filter(
+        (worker) =>
+          worker.role === 'prosjektleder' &&
+          visibleCalendarWorkerIds.includes(worker.id)
+      )
+      .map((worker) => worker.id)
+  );
+  const visibleCalendarWorkerIdSet = new Set(visibleCalendarWorkerIds);
+  const visibleAssignments = assignments.filter((assignment) =>
+    visibleCalendarWorkerIdSet.has(assignment.workerId)
+  );
+  const visibleFinanceProjectIds = getVisibleFinanceProjectIdsForLeader(
+    projects,
+    assignments,
+    editableWorkerIds,
+    userWorkerId
+  );
+  const visibleProjectIds = new Set(visibleFinanceProjectIds);
+  projects.forEach((project) => {
+    if (project.isSystem) {
+      visibleProjectIds.add(project.id);
+    }
+  });
+  visibleAssignments.forEach((assignment) => visibleProjectIds.add(assignment.projectId));
+
+  return {
+    workers: workers.filter((worker) => visibleCalendarWorkerIdSet.has(worker.id)),
+    projects: projects.filter((project) => visibleProjectIds.has(project.id)),
+    assignments: visibleAssignments,
+    projectLeaderCalendarLinks: links.filter(
+      (link) =>
+        connectedLeaderIds.has(link.projectLeaderAId) &&
+        connectedLeaderIds.has(link.projectLeaderBId)
+    ),
+    editableWorkerIds,
+    visibleCalendarWorkerIds,
+    visibleFinanceProjectIds,
+  };
+};
+
 // Helper: Calculate end date from start date + duration (excluding weekends)
 function calculateEndDate(startDateString: string, durationDays: number): string {
   const startDate = parseISO(startDateString);
@@ -117,9 +354,13 @@ export const useStore = create<AppState>()((set, get) => ({
   workers: [],
   projects: [],
   assignments: [],
+  projectLeaderCalendarLinks: [],
   isLoading: true,
   currentUserWorkerId: null,
   isAdmin: false,
+  editableWorkerIds: [],
+  visibleCalendarWorkerIds: [],
+  visibleFinanceProjectIds: [],
   activeTab: 'schedule',
   dragSelection: null,
   selectedProjectId: null,
@@ -129,69 +370,98 @@ export const useStore = create<AppState>()((set, get) => ({
     set({ isLoading: true, currentUserWorkerId: userWorkerId ?? null, isAdmin });
 
     // Validate session first (handles Chrome/Edge differences: missing or stale session in localStorage)
-    const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+    const {
+      data: { user: authUser },
+      error: authError,
+    } = await supabase.auth.getUser();
     if (authError || !authUser) {
-      if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('prosjektstyring_session_expired', '1');
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('prosjektstyring_session_expired', '1');
+      }
       await supabase.auth.signOut();
       set({ isLoading: false });
       return;
     }
 
-    const [workersRes, projectsRes, assignmentsRes] = await Promise.all([
+    const [workersRes, projectsRes, assignmentsRes, linksRes] = await Promise.all([
       supabase.from('workers').select('*').order('created_at'),
       supabase.from('projects').select('*').order('created_at'),
       supabase.from('project_assignments').select('*').order('created_at'),
+      supabase.from('project_leader_calendar_links').select('*').order('created_at'),
     ]);
 
     // If any query failed with auth error (401/403 or JWT/session), sign out so user can log in again
-    const authErr = [workersRes.error, projectsRes.error, assignmentsRes.error].find(
-      (e) =>
-        e &&
-        ((e as { status?: number }).status === 401 ||
-          (e as { status?: number }).status === 403 ||
-          /jwt|session|unauthorized|forbidden/i.test(String((e as { message?: string }).message ?? '')))
+    const authErr = [workersRes.error, projectsRes.error, assignmentsRes.error, linksRes.error].find(
+      (error) =>
+        error &&
+        ((error as { status?: number }).status === 401 ||
+          (error as { status?: number }).status === 403 ||
+          /jwt|session|unauthorized|forbidden/i.test(
+            String((error as { message?: string }).message ?? '')
+          ))
     );
     if (authErr) {
-      if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('prosjektstyring_session_expired', '1');
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('prosjektstyring_session_expired', '1');
+      }
       await supabase.auth.signOut();
-      set({ workers: [], projects: [], assignments: [], isLoading: false });
+      set({
+        workers: [],
+        projects: [],
+        assignments: [],
+        projectLeaderCalendarLinks: [],
+        editableWorkerIds: [],
+        visibleCalendarWorkerIds: [],
+        visibleFinanceProjectIds: [],
+        isLoading: false,
+      });
+      return;
+    }
+
+    if (workersRes.error || projectsRes.error || assignmentsRes.error || linksRes.error) {
+      console.error('Error loading data:', {
+        workers: workersRes.error,
+        projects: projectsRes.error,
+        assignments: assignmentsRes.error,
+        links: linksRes.error,
+      });
+      set({ isLoading: false });
       return;
     }
 
     // One-time migration: red is reserved for sick days; update any regular project with red to orange in DB
     const rawProjects = projectsRes.data ?? [];
-    for (const p of rawProjects) {
-      if (!p.is_system && p.color === SICK_DAY_RED) {
-        await supabase.from('projects').update({ color: REPLACEMENT_FOR_RED }).eq('id', p.id);
+    for (const project of rawProjects) {
+      if (!project.is_system && project.color === SICK_DAY_RED) {
+        await supabase
+          .from('projects')
+          .update({ color: REPLACEMENT_FOR_RED })
+          .eq('id', project.id);
       }
     }
 
-    let workers = (workersRes.data ?? []).map(dbWorkerToWorker);
-    let projects = rawProjects.map(dbProjectToProject);
-    let assignments = (assignmentsRes.data ?? []).map(dbAssignmentToAssignment);
+    const allWorkers = (workersRes.data ?? []).map(dbWorkerToWorker);
+    const allProjects = rawProjects.map(dbProjectToProject);
+    const allAssignments = (assignmentsRes.data ?? []).map(dbAssignmentToAssignment);
+    const allLinks = (linksRes.data ?? []).map(dbCalendarLinkToCalendarLink);
 
-    // Project leaders: only show their own workers, projects, and assignments (safety net if RLS or role is wrong)
-    if (!isAdmin && userWorkerId) {
-      const myWorkerId = userWorkerId;
-      workers = workers.filter(
-        (w) =>
-          w.id === myWorkerId ||
-          (w.role === 'tømrer' && w.projectLeaderId === myWorkerId)
-      );
-      const visibleWorkerIds = new Set(workers.map((w) => w.id));
-      assignments = assignments.filter((a) => visibleWorkerIds.has(a.workerId));
-      projects = projects.filter(
-        (p) =>
-          p.isSystem ||
-          p.projectLeaderId === myWorkerId ||
-          assignments.some((a) => a.projectId === p.id)
-      );
-    }
+    const scopedData = buildScopedStoreData({
+      workers: allWorkers,
+      projects: allProjects,
+      assignments: allAssignments,
+      links: allLinks,
+      userWorkerId,
+      isAdmin,
+    });
 
     set({
-      workers,
-      projects,
-      assignments,
+      workers: scopedData.workers,
+      projects: scopedData.projects,
+      assignments: scopedData.assignments,
+      projectLeaderCalendarLinks: scopedData.projectLeaderCalendarLinks,
+      editableWorkerIds: scopedData.editableWorkerIds,
+      visibleCalendarWorkerIds: scopedData.visibleCalendarWorkerIds,
+      visibleFinanceProjectIds: scopedData.visibleFinanceProjectIds,
       isLoading: false,
     });
   },
@@ -213,8 +483,15 @@ export const useStore = create<AppState>()((set, get) => ({
       return;
     }
 
+    const newWorker = dbWorkerToWorker(data);
     set((state) => ({
-      workers: [...state.workers, dbWorkerToWorker(data)],
+      workers: [...state.workers, newWorker],
+      editableWorkerIds: state.isAdmin
+        ? [...state.editableWorkerIds, newWorker.id]
+        : state.editableWorkerIds,
+      visibleCalendarWorkerIds: state.isAdmin
+        ? [...state.visibleCalendarWorkerIds, newWorker.id]
+        : state.visibleCalendarWorkerIds,
     }));
   },
 
@@ -244,7 +521,9 @@ export const useStore = create<AppState>()((set, get) => ({
     }
 
     set((state) => ({
-      workers: state.workers.map((w) => (w.id === id ? { ...w, ...updates } : w)),
+      workers: state.workers.map((worker) =>
+        worker.id === id ? { ...worker, ...updates } : worker
+      ),
     }));
   },
 
@@ -257,9 +536,102 @@ export const useStore = create<AppState>()((set, get) => ({
     }
 
     set((state) => ({
-      workers: state.workers.filter((w) => w.id !== id),
-      assignments: state.assignments.filter((a) => a.workerId !== id),
+      workers: state.workers.filter((worker) => worker.id !== id),
+      assignments: state.assignments.filter((assignment) => assignment.workerId !== id),
+      projectLeaderCalendarLinks: state.projectLeaderCalendarLinks.filter(
+        (link) => link.projectLeaderAId !== id && link.projectLeaderBId !== id
+      ),
+      editableWorkerIds: state.editableWorkerIds.filter((workerId) => workerId !== id),
+      visibleCalendarWorkerIds: state.visibleCalendarWorkerIds.filter(
+        (workerId) => workerId !== id
+      ),
     }));
+  },
+
+  setProjectLeaderCalendarLinks: async (leaderId, linkedLeaderIds) => {
+    const { isAdmin, workers, projectLeaderCalendarLinks } = get();
+    if (!isAdmin) return;
+
+    const isLeader = workers.some(
+      (worker) => worker.id === leaderId && worker.role === 'prosjektleder'
+    );
+    if (!isLeader) return;
+
+    const validLinkedLeaderIds = Array.from(
+      new Set(
+        linkedLeaderIds.filter(
+          (linkedLeaderId) =>
+            linkedLeaderId !== leaderId &&
+            workers.some(
+              (worker) =>
+                worker.id === linkedLeaderId && worker.role === 'prosjektleder'
+            )
+        )
+      )
+    );
+
+    const requestedPairs = validLinkedLeaderIds.map((linkedLeaderId) =>
+      normalizeLeaderPair(leaderId, linkedLeaderId)
+    );
+    const requestedPairKeys = new Set(
+      requestedPairs.map((pair) => getLeaderPairKey(pair))
+    );
+    const currentLinksForLeader = projectLeaderCalendarLinks.filter(
+      (link) =>
+        link.projectLeaderAId === leaderId || link.projectLeaderBId === leaderId
+    );
+    const currentPairKeys = new Set(
+      currentLinksForLeader.map((link) => getLeaderPairKey(link))
+    );
+
+    const linkIdsToDelete = currentLinksForLeader
+      .filter((link) => !requestedPairKeys.has(getLeaderPairKey(link)))
+      .map((link) => link.id);
+
+    if (linkIdsToDelete.length > 0) {
+      const { error } = await supabase
+        .from('project_leader_calendar_links')
+        .delete()
+        .in('id', linkIdsToDelete);
+
+      if (error) {
+        console.error('Error deleting calendar links:', error);
+        return;
+      }
+    }
+
+    const pairsToInsert = requestedPairs.filter(
+      (pair) => !currentPairKeys.has(getLeaderPairKey(pair))
+    );
+    let insertedLinks: ProjectLeaderCalendarLink[] = [];
+
+    if (pairsToInsert.length > 0) {
+      const { data, error } = await supabase
+        .from('project_leader_calendar_links')
+        .insert(
+          pairsToInsert.map((pair) => ({
+            project_leader_a_id: pair.projectLeaderAId,
+            project_leader_b_id: pair.projectLeaderBId,
+          }))
+        )
+        .select();
+
+      if (error) {
+        console.error('Error saving calendar links:', error);
+        return;
+      }
+
+      insertedLinks = (data ?? []).map(dbCalendarLinkToCalendarLink);
+    }
+
+    set((state) => {
+      const remainingLinks = state.projectLeaderCalendarLinks.filter(
+        (link) => !linkIdsToDelete.includes(link.id)
+      );
+      return {
+        projectLeaderCalendarLinks: [...remainingLinks, ...insertedLinks],
+      };
+    });
   },
 
   // Project actions
@@ -315,6 +687,10 @@ export const useStore = create<AppState>()((set, get) => ({
 
     set((state) => ({
       projects: [...state.projects, newProject],
+      visibleFinanceProjectIds:
+        state.isAdmin || !projectLeaderId || projectLeaderId !== state.currentUserWorkerId
+          ? state.visibleFinanceProjectIds
+          : Array.from(new Set([...state.visibleFinanceProjectIds, newProject.id])),
     }));
 
     // Auto-create assignment if project has start date, duration, and project leader
@@ -332,9 +708,13 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   updateProject: async (id, updates) => {
-    const { addAssignment, assignments, isAdmin } = get();
-    const currentProject = get().projects.find((p) => p.id === id);
+    const { addAssignment, assignments, isAdmin, currentUserWorkerId } = get();
+    const currentProject = get().projects.find((project) => project.id === id);
     if (!currentProject) return;
+
+    if (!isAdmin && currentProject.projectLeaderId !== currentUserWorkerId) {
+      return;
+    }
 
     const sanitizedUpdates = { ...updates };
     if (!isAdmin) {
@@ -347,24 +727,39 @@ export const useStore = create<AppState>()((set, get) => ({
 
     const dbUpdates: Record<string, unknown> = {};
     if (sanitizedUpdates.name !== undefined) dbUpdates.name = sanitizedUpdates.name;
-    if (sanitizedUpdates.description !== undefined) dbUpdates.description = sanitizedUpdates.description;
+    if (sanitizedUpdates.description !== undefined) {
+      dbUpdates.description = sanitizedUpdates.description;
+    }
     if (sanitizedUpdates.color !== undefined) dbUpdates.color = sanitizedUpdates.color;
     if (sanitizedUpdates.amount !== undefined) dbUpdates.amount = sanitizedUpdates.amount;
-    if (sanitizedUpdates.aKontoPercent !== undefined) dbUpdates.a_konto_percent = sanitizedUpdates.aKontoPercent;
-    if (sanitizedUpdates.fakturert !== undefined) dbUpdates.fakturert = sanitizedUpdates.fakturert;
-    if (sanitizedUpdates.billingType !== undefined) dbUpdates.billing_type = sanitizedUpdates.billingType;
+    if (sanitizedUpdates.aKontoPercent !== undefined) {
+      dbUpdates.a_konto_percent = sanitizedUpdates.aKontoPercent;
+    }
+    if (sanitizedUpdates.fakturert !== undefined) {
+      dbUpdates.fakturert = sanitizedUpdates.fakturert;
+    }
+    if (sanitizedUpdates.billingType !== undefined) {
+      dbUpdates.billing_type = sanitizedUpdates.billingType;
+    }
     if (sanitizedUpdates.status !== undefined) dbUpdates.status = sanitizedUpdates.status;
-    if (sanitizedUpdates.projectType !== undefined) dbUpdates.project_type = sanitizedUpdates.projectType;
-    if (sanitizedUpdates.isPlaceholder !== undefined) dbUpdates.is_placeholder = sanitizedUpdates.isPlaceholder;
+    if (sanitizedUpdates.projectType !== undefined) {
+      dbUpdates.project_type = sanitizedUpdates.projectType;
+    }
+    if (sanitizedUpdates.isPlaceholder !== undefined) {
+      dbUpdates.is_placeholder = sanitizedUpdates.isPlaceholder;
+    }
     if (sanitizedUpdates.projectLeaderId !== undefined) {
       dbUpdates.project_leader_id =
         sanitizedUpdates.projectLeaderId === null || sanitizedUpdates.projectLeaderId === ''
           ? null
           : sanitizedUpdates.projectLeaderId;
     }
-    if (sanitizedUpdates.plannedStartDate !== undefined)
+    if (sanitizedUpdates.plannedStartDate !== undefined) {
       dbUpdates.planned_start_date = sanitizedUpdates.plannedStartDate || null;
-    if (sanitizedUpdates.durationDays !== undefined) dbUpdates.duration_days = sanitizedUpdates.durationDays || null;
+    }
+    if (sanitizedUpdates.durationDays !== undefined) {
+      dbUpdates.duration_days = sanitizedUpdates.durationDays || null;
+    }
 
     if (Object.keys(dbUpdates).length === 0) return;
 
@@ -378,7 +773,9 @@ export const useStore = create<AppState>()((set, get) => ({
     const updatedProject = { ...currentProject, ...sanitizedUpdates } as Project;
 
     set((state) => ({
-      projects: state.projects.map((p) => (p.id === id ? updatedProject : p)),
+      projects: state.projects.map((project) =>
+        project.id === id ? updatedProject : project
+      ),
     }));
 
     // Auto-create or update assignment if project has start date, duration, and project leader
@@ -386,7 +783,9 @@ export const useStore = create<AppState>()((set, get) => ({
       const endDate = calculateEndDate(updatedProject.plannedStartDate, updatedProject.durationDays);
 
       const existingAssignment = assignments.find(
-        (a) => a.projectId === id && a.workerId === updatedProject.projectLeaderId
+        (assignment) =>
+          assignment.projectId === id &&
+          assignment.workerId === updatedProject.projectLeaderId
       );
 
       if (existingAssignment) {
@@ -414,13 +813,21 @@ export const useStore = create<AppState>()((set, get) => ({
     }
 
     set((state) => ({
-      projects: state.projects.filter((p) => p.id !== id),
-      assignments: state.assignments.filter((a) => a.projectId !== id),
+      projects: state.projects.filter((project) => project.id !== id),
+      assignments: state.assignments.filter((assignment) => assignment.projectId !== id),
+      visibleFinanceProjectIds: state.visibleFinanceProjectIds.filter(
+        (projectId) => projectId !== id
+      ),
     }));
   },
 
   // Assignment actions
   addAssignment: async (assignment) => {
+    const { isAdmin, editableWorkerIds } = get();
+    if (!isAdmin && !editableWorkerIds.includes(assignment.workerId)) {
+      return;
+    }
+
     const { data, error } = await supabase
       .from('project_assignments')
       .insert({
@@ -443,6 +850,18 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   updateAssignment: async (id, updates) => {
+    const { assignments, isAdmin, editableWorkerIds } = get();
+    const currentAssignment = assignments.find((assignment) => assignment.id === id);
+    if (!currentAssignment) return;
+
+    if (
+      !isAdmin &&
+      (!editableWorkerIds.includes(currentAssignment.workerId) ||
+        (updates.workerId !== undefined && !editableWorkerIds.includes(updates.workerId)))
+    ) {
+      return;
+    }
+
     const dbUpdates: Record<string, unknown> = {};
     if (updates.projectId !== undefined) dbUpdates.project_id = updates.projectId;
     if (updates.workerId !== undefined) dbUpdates.worker_id = updates.workerId;
@@ -457,27 +876,37 @@ export const useStore = create<AppState>()((set, get) => ({
     }
 
     set((state) => ({
-      assignments: state.assignments.map((a) => (a.id === id ? { ...a, ...updates } : a)),
+      assignments: state.assignments.map((assignment) =>
+        assignment.id === id ? { ...assignment, ...updates } : assignment
+      ),
     }));
   },
 
   updateAssignmentAndSplit: async (id, newStartDate, newEndDate, otherSegments) => {
-    const assignment = get().assignments.find((a) => a.id === id);
+    const assignment = get().assignments.find((item) => item.id === id);
     if (!assignment) return;
 
     const { addAssignment, updateAssignment } = get();
-    for (const seg of otherSegments) {
+    for (const segment of otherSegments) {
       await addAssignment({
         projectId: assignment.projectId,
         workerId: assignment.workerId,
-        startDate: seg.startDate,
-        endDate: seg.endDate,
+        startDate: segment.startDate,
+        endDate: segment.endDate,
       });
     }
     await updateAssignment(id, { startDate: newStartDate, endDate: newEndDate });
   },
 
   deleteAssignment: async (id) => {
+    const { assignments, isAdmin, editableWorkerIds } = get();
+    const currentAssignment = assignments.find((assignment) => assignment.id === id);
+    if (!currentAssignment) return;
+
+    if (!isAdmin && !editableWorkerIds.includes(currentAssignment.workerId)) {
+      return;
+    }
+
     const { error } = await supabase.from('project_assignments').delete().eq('id', id);
 
     if (error) {
@@ -486,7 +915,7 @@ export const useStore = create<AppState>()((set, get) => ({
     }
 
     set((state) => ({
-      assignments: state.assignments.filter((a) => a.id !== id),
+      assignments: state.assignments.filter((assignment) => assignment.id !== id),
     }));
   },
 
@@ -497,7 +926,12 @@ export const useStore = create<AppState>()((set, get) => ({
 
   // Computed
   getProjectFinance: (projectId) => {
-    const project = get().projects.find((p) => p.id === projectId);
+    const { projects, isAdmin, visibleFinanceProjectIds } = get();
+    if (!isAdmin && !visibleFinanceProjectIds.includes(projectId)) {
+      return { fakturert: 0, ordrereserve: 0 };
+    }
+
+    const project = projects.find((item) => item.id === projectId);
     if (!project || project.isPlaceholder) return { fakturert: 0, ordrereserve: 0 };
 
     if (project.billingType === 'timer_materiell') {
@@ -512,9 +946,17 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   getTotalOrdrereserve: () => {
-    const { projects } = get();
+    const { projects, isAdmin, visibleFinanceProjectIds } = get();
+    const visibleProjectIds = new Set(visibleFinanceProjectIds);
+
     return projects
-      .filter((p) => p.status === 'active' && p.projectType === 'regular' && !p.isPlaceholder)
+      .filter(
+        (project) =>
+          project.status === 'active' &&
+          project.projectType === 'regular' &&
+          !project.isPlaceholder &&
+          (isAdmin || visibleProjectIds.has(project.id))
+      )
       .reduce((total, project) => {
         if (project.billingType === 'timer_materiell') {
           return total + Math.max(0, project.amount - project.fakturert);

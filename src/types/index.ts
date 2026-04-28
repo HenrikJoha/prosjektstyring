@@ -9,6 +9,13 @@ export interface Worker {
   projectLeaderId?: string; // For tømrer, links to their prosjektleder
 }
 
+export interface ProjectLeaderCalendarLink {
+  id: string;
+  projectLeaderAId: string;
+  projectLeaderBId: string;
+  createdAt: string;
+}
+
 export interface ProjectAssignment {
   id: string;
   projectId: string;

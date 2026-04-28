@@ -40,7 +40,7 @@ export default function ProjectModal({
   onClose,
   onSelect,
 }: ProjectModalProps) {
-  const { projects, workers, addProject, isAdmin } = useStore();
+  const { projects, workers, addProject, isAdmin, visibleFinanceProjectIds } = useStore();
   const [mode, setMode] = useState<'select' | 'create'>('select');
   const [projectSearch, setProjectSearch] = useState('');
   const [newProject, setNewProject] = useState({
@@ -59,6 +59,17 @@ export default function ProjectModal({
   );
   const regularProjects = projects.filter(
     (project) => project.status === 'active' && project.projectType === 'regular'
+  );
+  const visibleFinanceProjectIdSet = useMemo(
+    () => new Set(visibleFinanceProjectIds),
+    [visibleFinanceProjectIds]
+  );
+  const selectableRegularProjects = useMemo(
+    () =>
+      isAdmin
+        ? regularProjects
+        : regularProjects.filter((project) => visibleFinanceProjectIdSet.has(project.id)),
+    [isAdmin, regularProjects, visibleFinanceProjectIdSet]
   );
   const worker = workers.find((item) => item.id === workerId);
 
@@ -80,13 +91,13 @@ export default function ProjectModal({
     const normalizedSearch = projectSearch.trim().toLowerCase();
 
     if (!normalizedSearch) {
-      return regularProjects;
+      return selectableRegularProjects;
     }
 
-    return regularProjects.filter((project) =>
+    return selectableRegularProjects.filter((project) =>
       project.name.trim().toLowerCase().startsWith(normalizedSearch)
     );
-  }, [projectSearch, regularProjects]);
+  }, [projectSearch, selectableRegularProjects]);
 
   const formatDateRange = () => {
     const start = parseISO(startDate);
@@ -203,7 +214,7 @@ export default function ProjectModal({
                 <span className="font-medium">{createButtonLabel}</span>
               </button>
 
-              {regularProjects.length > 0 && (
+              {selectableRegularProjects.length > 0 && (
                 <>
                   <div className="mb-3 text-sm font-medium text-gray-500">
                     Eller velg eksisterende prosjekt:
@@ -249,7 +260,7 @@ export default function ProjectModal({
                 </>
               )}
 
-              {regularProjects.length === 0 && (
+              {selectableRegularProjects.length === 0 && (
                 <p className="py-4 text-center text-gray-500">{emptyProjectsLabel}</p>
               )}
             </>

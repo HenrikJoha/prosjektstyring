@@ -111,9 +111,23 @@ const PROJECT_COLORS = [
 ];
 
 export default function FinanceView() {
-  const { projects, assignments, workers, updateProject, deleteProject, addProject, getProjectFinance, getTotalOrdrereserve } = useStore();
+  const {
+    projects,
+    assignments,
+    workers,
+    updateProject,
+    deleteProject,
+    addProject,
+    getProjectFinance,
+    getTotalOrdrereserve,
+    visibleFinanceProjectIds,
+  } = useStore();
   const user = useAuthStore((state) => state.user);
   const isAdminUser = user?.role === 'admin';
+  const visibleFinanceProjectIdSet = useMemo(
+    () => new Set(visibleFinanceProjectIds),
+    [visibleFinanceProjectIds]
+  );
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editField, setEditField] = useState<'akonto' | 'amount' | 'fakturert' | 'startDate' | 'duration' | null>(null);
   const [editValue, setEditValue] = useState<string>('');
@@ -147,12 +161,14 @@ export default function FinanceView() {
   // Only show complete finance projects in finance (exclude placeholders, sick leave, and vacation)
   const activeProjects = projects.filter(
     (project) =>
+      (isAdminUser || visibleFinanceProjectIdSet.has(project.id)) &&
       project.status === 'active' &&
       project.projectType === 'regular' &&
       !project.isPlaceholder
   );
   const completedProjects = projects.filter(
     (project) =>
+      (isAdminUser || visibleFinanceProjectIdSet.has(project.id)) &&
       project.status === 'completed' &&
       project.projectType === 'regular' &&
       !project.isPlaceholder
