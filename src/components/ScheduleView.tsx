@@ -21,6 +21,10 @@ const LEADER_BLOCK_GAP_CLASS = 'mb-6';
 const TODAY_COLUMN_CLASSES = 'bg-blue-200 border-b border-gray-200 border-r border-blue-300';
 /** Grid lines inside each prosjektleder block (must contrast with bg-gray-100 / bg-gray-50 rows). */
 const GRID_CELL_BORDER_CLASSES = 'border-b border-r border-gray-200';
+/** Vertical day separators in the sticky day header row (aligns with grid columns). */
+const DAY_HEADER_DAY_BORDER_CLASSES = 'border-r border-gray-200';
+/** Stronger line after the last weekday column in each week (Fri | Mon) — matches page canvas. */
+const WEEK_COLUMN_SEPARATOR_CLASSES = 'border-r-[3px] border-r-gray-300';
 
 /** Light gray background for every prosjektleder block (leader + team). */
 function getLeaderBlockRowBackground(canEdit: boolean): string {
@@ -577,7 +581,7 @@ export default function ScheduleView() {
                     key={`week-${week.weekNumber}-${week.year}`}
                     className={clsx(
                       'bg-gray-50 py-2 text-center text-sm font-medium text-gray-600',
-                      weekIdx < weeks.length - 1 && 'border-r-2 border-gray-300'
+                      weekIdx < weeks.length - 1 && WEEK_COLUMN_SEPARATOR_CLASSES
                     )}
                     style={{ width: week.days.length * CELL_WIDTH }}
                   >
@@ -590,7 +594,7 @@ export default function ScheduleView() {
             {/* Day headers row */}
             <div className="flex">
               <div className="w-48 flex-shrink-0 rounded-bl-lg border-r border-gray-200 bg-gray-300 px-4 py-1" />
-              <div className="flex bg-gray-300">
+              <div className="flex">
                 {weeks.map((week, weekIdx) => (
                   <div key={`days-${week.weekNumber}-${week.year}`} className="flex">
                     {week.days.map((day, dayIdx) => {
@@ -603,8 +607,9 @@ export default function ScheduleView() {
                           className={clsx(
                             'py-1 text-center text-xs',
                             isToday && !day.isHoliday && TODAY_COLUMN_CLASSES,
-                            day.isHoliday && 'bg-red-200 text-red-800',
-                            isLastDayOfWeek && weekIdx < weeks.length - 1 && 'border-r-2 border-gray-300'
+                            !isToday && day.isHoliday && clsx('bg-red-200 text-red-800', DAY_HEADER_DAY_BORDER_CLASSES),
+                            !isToday && !day.isHoliday && clsx('bg-gray-50', DAY_HEADER_DAY_BORDER_CLASSES),
+                            isLastDayOfWeek && weekIdx < weeks.length - 1 && WEEK_COLUMN_SEPARATOR_CLASSES
                           )}
                           style={{ width: CELL_WIDTH }}
                           title={day.holidayName || undefined}
@@ -705,7 +710,7 @@ export default function ScheduleView() {
                                     // Holiday cells
                                     day.isHoliday && !isSelected && clsx('bg-red-100', GRID_CELL_BORDER_CLASSES),
                                     // Week separator
-                                    isLastDayOfWeek && weekIdx < weeks.length - 1 && 'border-r-2 border-r-gray-300'
+                                    isLastDayOfWeek && weekIdx < weeks.length - 1 && WEEK_COLUMN_SEPARATOR_CLASSES
                                   )}
                                   style={{ width: CELL_WIDTH, height: rowHeight }}
                                   onMouseDown={() => canEditWorker && handleMouseDown(worker.id, day.dateString)}
