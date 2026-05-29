@@ -546,16 +546,16 @@ export default function ScheduleView() {
       >
         <div className="min-w-max pb-24 md:pb-4">
           {/* Header with months, week numbers and days */}
-          <div className="sticky top-0 z-20 bg-gray-300 border-b border-gray-300">
+          <div className="sticky top-0 z-20 border-b border-gray-300">
             {/* Month row */}
             <div className="flex">
-              <div className="w-48 flex-shrink-0 px-4 py-1 bg-blue-600 border-r-4 border-white" />
+              <div className="w-48 flex-shrink-0 rounded-tl-lg bg-blue-600 px-4 py-1 border-r-4 border-white" />
               <div className="flex">
                 {monthSpans.map((span, idx) => (
                   <div
                     key={span.key}
                     className={clsx(
-                      'text-center py-1 bg-blue-600 text-white font-semibold text-sm capitalize',
+                      'bg-blue-600 py-1 text-center text-sm font-semibold capitalize text-white',
                       idx < monthSpans.length - 1 && 'border-r-4 border-white'
                     )}
                     style={{ width: span.width }}
@@ -565,10 +565,10 @@ export default function ScheduleView() {
                 ))}
               </div>
             </div>
-            
+
             {/* Week numbers row */}
             <div className="flex">
-              <div className="w-48 flex-shrink-0 px-4 py-2 bg-gray-50 border-r border-gray-200 font-medium text-sm text-gray-600">
+              <div className="w-48 flex-shrink-0 border-r border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-600">
                 Ansatt
               </div>
               <div className="flex">
@@ -576,7 +576,7 @@ export default function ScheduleView() {
                   <div
                     key={`week-${week.weekNumber}-${week.year}`}
                     className={clsx(
-                      'text-center py-2 bg-gray-50 font-medium text-sm text-gray-600',
+                      'bg-gray-50 py-2 text-center text-sm font-medium text-gray-600',
                       weekIdx < weeks.length - 1 && 'border-r-2 border-gray-300'
                     )}
                     style={{ width: week.days.length * CELL_WIDTH }}
@@ -589,19 +589,19 @@ export default function ScheduleView() {
 
             {/* Day headers row */}
             <div className="flex">
-              <div className="w-48 flex-shrink-0 px-4 py-1 bg-gray-300 border-r border-gray-200" />
-              <div className="flex">
+              <div className="w-48 flex-shrink-0 rounded-bl-lg border-r border-gray-200 bg-gray-300 px-4 py-1" />
+              <div className="flex bg-gray-300">
                 {weeks.map((week, weekIdx) => (
                   <div key={`days-${week.weekNumber}-${week.year}`} className="flex">
                     {week.days.map((day, dayIdx) => {
                       const isToday = isSameDay(day.date, new Date());
                       const isLastDayOfWeek = dayIdx === week.days.length - 1;
-                      
+
                       return (
                         <div
                           key={day.dateString}
                           className={clsx(
-                            'text-center py-1 text-xs',
+                            'py-1 text-center text-xs',
                             isToday && !day.isHoliday && TODAY_COLUMN_CLASSES,
                             day.isHoliday && 'bg-red-200 text-red-800',
                             isLastDayOfWeek && weekIdx < weeks.length - 1 && 'border-r-2 border-gray-300'
@@ -610,11 +610,13 @@ export default function ScheduleView() {
                           title={day.holidayName || undefined}
                         >
                           <div className="font-medium">{['Ma', 'Ti', 'On', 'To', 'Fr'][day.dayOfWeek]}</div>
-                          <div className={clsx(
-                            'text-gray-500',
-                            isToday && 'text-blue-800 font-bold',
-                            day.isHoliday && 'text-red-800 font-semibold'
-                          )}>
+                          <div
+                            className={clsx(
+                              'text-gray-500',
+                              isToday && 'font-bold text-blue-800',
+                              day.isHoliday && 'font-semibold text-red-800'
+                            )}
+                          >
                             {formatDateShort(day.date)}
                           </div>
                         </div>
@@ -635,22 +637,31 @@ export default function ScheduleView() {
                   blockIndex < groupedWorkers.length - 1 && LEADER_BLOCK_GAP_CLASS
                 )}
               >
-                {group.members.map((worker) => {
+                {group.members.map((worker, memberIdx) => {
               const workerSegments = getWorkerSegmentsForWorker(worker.id);
               const isLeader = worker.role === 'prosjektleder';
               const canEditWorker = editableWorkerIdSet.has(worker.id);
               const rowHeight = getWorkerRowHeight(worker.id);
               const laneInfo = workerLaneInfo.get(worker.id);
               const rowBackground = getLeaderBlockRowBackground(canEditWorker);
+              const isFirstInBlock = memberIdx === 0;
+              const isLastInBlock = memberIdx === group.members.length - 1;
 
               return (
                 <div
                   key={worker.id}
-                  className={clsx('flex', rowBackground)}
+                  className="flex"
                   style={{ height: rowHeight }}
                 >
-                      {/* Worker name column */}
-                      <div className="w-48 flex-shrink-0 px-4 flex items-center gap-2 border-r border-gray-200">
+                      {/* Worker name column — rounded on visible left corners of each block */}
+                      <div
+                        className={clsx(
+                          'w-48 flex-shrink-0 px-4 flex items-center gap-2 border-r border-gray-200',
+                          rowBackground,
+                          isFirstInBlock && 'rounded-tl-lg',
+                          isLastInBlock && 'rounded-bl-lg'
+                        )}
+                      >
                         <div className={clsx(
                           'w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-medium flex-shrink-0',
                           canEditWorker
@@ -670,7 +681,7 @@ export default function ScheduleView() {
                       </div>
 
                       {/* Calendar cells */}
-                      <div className="flex relative">
+                      <div className={clsx('flex relative flex-1 min-w-0', rowBackground)}>
                         {weeks.map((week, weekIdx) => (
                           <div key={`${worker.id}-week-${week.weekNumber}`} className="flex">
                             {week.days.map((day, dayIdx) => {
