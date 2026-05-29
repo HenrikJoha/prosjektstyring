@@ -13,6 +13,19 @@ import { ChevronLeft, ChevronRight, Users } from 'lucide-react';
 const CELL_WIDTH = 40;
 const BASE_ROW_HEIGHT = 60;
 const WEEKS_TO_SHOW = 12;
+/** Space between prosjektleder blocks. */
+const LEADER_BLOCK_GAP_CLASS = 'mb-6';
+/**
+ * Today column — light tint of month header blue (bg-blue-600), same hue family.
+ */
+const TODAY_COLUMN_CLASSES = 'bg-blue-200 border-b border-gray-200 border-r border-blue-300';
+/** Grid lines inside each prosjektleder block (must contrast with bg-gray-100 / bg-gray-50 rows). */
+const GRID_CELL_BORDER_CLASSES = 'border-b border-r border-gray-200';
+
+/** Light gray background for every prosjektleder block (leader + team). */
+function getLeaderBlockRowBackground(canEdit: boolean): string {
+  return canEdit ? 'bg-gray-100' : 'bg-gray-50';
+}
 
 // Helper to check if two date ranges overlap
 function dateRangesOverlap(
@@ -497,7 +510,7 @@ export default function ScheduleView() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Navigation Controls */}
-      <div className="flex items-center gap-4 px-4 py-3 bg-gray-200 border-b border-gray-200">
+      <div className="flex items-center gap-4 px-4 py-3 bg-gray-300 border-b border-gray-300">
         <div className="flex items-center gap-2">
           <button
             onClick={() => navigateWeeks(-1)}
@@ -533,7 +546,7 @@ export default function ScheduleView() {
       >
         <div className="min-w-max pb-24 md:pb-4">
           {/* Header with months, week numbers and days */}
-          <div className="sticky top-0 z-20 bg-gray-200 border-b border-gray-200">
+          <div className="sticky top-0 z-20 bg-gray-300 border-b border-gray-300">
             {/* Month row */}
             <div className="flex">
               <div className="w-48 flex-shrink-0 px-4 py-1 bg-blue-600 border-r-4 border-white" />
@@ -576,7 +589,7 @@ export default function ScheduleView() {
 
             {/* Day headers row */}
             <div className="flex">
-              <div className="w-48 flex-shrink-0 px-4 py-1 bg-gray-200 border-r border-gray-200" />
+              <div className="w-48 flex-shrink-0 px-4 py-1 bg-gray-300 border-r border-gray-200" />
               <div className="flex">
                 {weeks.map((week, weekIdx) => (
                   <div key={`days-${week.weekNumber}-${week.year}`} className="flex">
@@ -589,7 +602,7 @@ export default function ScheduleView() {
                           key={day.dateString}
                           className={clsx(
                             'text-center py-1 text-xs',
-                            isToday && 'bg-gray-300',
+                            isToday && !day.isHoliday && TODAY_COLUMN_CLASSES,
                             day.isHoliday && 'bg-red-200 text-red-800',
                             isLastDayOfWeek && weekIdx < weeks.length - 1 && 'border-r-2 border-gray-300'
                           )}
@@ -599,7 +612,7 @@ export default function ScheduleView() {
                           <div className="font-medium">{['Ma', 'Ti', 'On', 'To', 'Fr'][day.dayOfWeek]}</div>
                           <div className={clsx(
                             'text-gray-500',
-                            isToday && 'text-blue-600 font-bold',
+                            isToday && 'text-blue-800 font-bold',
                             day.isHoliday && 'text-red-800 font-semibold'
                           )}>
                             {formatDateShort(day.date)}
@@ -613,32 +626,29 @@ export default function ScheduleView() {
             </div>
           </div>
 
-          {/* Worker rows */}
+          {/* Worker rows — grouped by prosjektleder with uniform light gray block background */}
           <div className="no-select">
-            {groupedWorkers.map((group, groupIdx) => (
-              <div key={group.leader?.id || 'unassigned'}>
-                {group.members.map((worker, memberIdx) => {
-                  const workerSegments = getWorkerSegmentsForWorker(worker.id);
-                  const isLeader = worker.role === 'prosjektleder';
-                  const canEditWorker = editableWorkerIdSet.has(worker.id);
-                  const rowHeight = getWorkerRowHeight(worker.id);
-                  const laneInfo = workerLaneInfo.get(worker.id);
+            {groupedWorkers.map((group, blockIndex) => (
+              <div
+                key={group.leader?.id ?? 'unassigned'}
+                className={clsx(
+                  blockIndex < groupedWorkers.length - 1 && LEADER_BLOCK_GAP_CLASS
+                )}
+              >
+                {group.members.map((worker) => {
+              const workerSegments = getWorkerSegmentsForWorker(worker.id);
+              const isLeader = worker.role === 'prosjektleder';
+              const canEditWorker = editableWorkerIdSet.has(worker.id);
+              const rowHeight = getWorkerRowHeight(worker.id);
+              const laneInfo = workerLaneInfo.get(worker.id);
+              const rowBackground = getLeaderBlockRowBackground(canEditWorker);
 
-                  return (
-                    <div
-                      key={worker.id}
-                      className={clsx(
-                        'flex',
-                        canEditWorker
-                          ? isLeader
-                            ? 'bg-blue-50/30'
-                            : 'bg-gray-200'
-                          : isLeader
-                            ? 'bg-slate-50'
-                            : 'bg-slate-100'
-                      )}
-                      style={{ height: rowHeight }}
-                    >
+              return (
+                <div
+                  key={worker.id}
+                  className={clsx('flex', rowBackground)}
+                  style={{ height: rowHeight }}
+                >
                       {/* Worker name column */}
                       <div className="w-48 flex-shrink-0 px-4 flex items-center gap-2 border-r border-gray-200">
                         <div className={clsx(
@@ -675,14 +685,14 @@ export default function ScheduleView() {
                                   className={clsx(
                                     'calendar-cell',
                                     canEditWorker ? 'cursor-crosshair' : 'cursor-default',
-                                    // Today cells: seamless column
-                                    isToday && !isSelected && 'bg-gray-300 border-r border-gray-300',
-                                    // Regular cells: normal borders
-                                    !isToday && !isSelected && !day.isHoliday && 'border-b border-r border-gray-100',
+                                    // Today cells: light blue column
+                                    isToday && !isSelected && !day.isHoliday && TODAY_COLUMN_CLASSES,
+                                    // Regular cells: visible grid on block background
+                                    !isToday && !isSelected && !day.isHoliday && GRID_CELL_BORDER_CLASSES,
                                     // Selected cells
-                                    isSelected && 'bg-blue-200 border-b border-r border-gray-100',
+                                    isSelected && clsx('bg-blue-200', GRID_CELL_BORDER_CLASSES),
                                     // Holiday cells
-                                    day.isHoliday && !isSelected && 'bg-red-100 border-b border-r border-gray-100',
+                                    day.isHoliday && !isSelected && clsx('bg-red-100', GRID_CELL_BORDER_CLASSES),
                                     // Week separator
                                     isLastDayOfWeek && weekIdx < weeks.length - 1 && 'border-r-2 border-r-gray-300'
                                   )}
@@ -728,8 +738,8 @@ export default function ScheduleView() {
                           );
                         })}
                       </div>
-                    </div>
-                  );
+                </div>
+              );
                 })}
               </div>
             ))}

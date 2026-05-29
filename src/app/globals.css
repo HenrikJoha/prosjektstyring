@@ -4,7 +4,8 @@
 
 :root {
   --foreground-rgb: 0, 0, 0;
-  --background-rgb: 229, 231, 235;
+  /* gray-300 — slightly darker app canvas */
+  --background-rgb: 209, 213, 219;
 }
 
 body {
@@ -19,7 +20,7 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: #d1d5db;
 }
 
 ::-webkit-scrollbar-thumb {
