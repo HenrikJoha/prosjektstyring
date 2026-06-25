@@ -40,6 +40,7 @@ export interface Project {
   projectLeaderId?: string; // The project leader responsible for this project
   plannedStartDate?: string; // ISO date string - planned start date for the project
   durationDays?: number; // Duration in working days (excluding weekends)
+  startIsUrgent?: boolean; // Start date is urgent (ASAP if no date set)
   createdAt: string;
 }
 

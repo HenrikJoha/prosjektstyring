@@ -1,0 +1,2 @@
+ALTER TABLE projects
+ADD COLUMN IF NOT EXISTS start_is_urgent BOOLEAN NOT NULL DEFAULT false;

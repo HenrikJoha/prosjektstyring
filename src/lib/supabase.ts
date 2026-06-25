@@ -90,6 +90,7 @@ export interface DbProject {
   project_leader_id: string | null;
   planned_start_date: string | null;
   duration_days: number | null;
+  start_is_urgent: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -112,6 +112,7 @@ const dbProjectToProject = (db: DbProject): Project => ({
   projectLeaderId: db.project_leader_id || undefined,
   plannedStartDate: db.planned_start_date || undefined,
   durationDays: db.duration_days || undefined,
+  startIsUrgent: db.start_is_urgent ?? false,
   createdAt: db.created_at,
 });
 
@@ -674,6 +675,7 @@ export const useStore = create<AppState>()((set, get) => ({
         project_leader_id: projectLeaderId,
         planned_start_date: projectData.plannedStartDate || null,
         duration_days: projectData.durationDays || null,
+        start_is_urgent: projectData.startIsUrgent ?? false,
       })
       .select()
       .single();
@@ -759,6 +761,9 @@ export const useStore = create<AppState>()((set, get) => ({
     }
     if (sanitizedUpdates.durationDays !== undefined) {
       dbUpdates.duration_days = sanitizedUpdates.durationDays || null;
+    }
+    if (sanitizedUpdates.startIsUrgent !== undefined) {
+      dbUpdates.start_is_urgent = sanitizedUpdates.startIsUrgent;
     }
 
     if (Object.keys(dbUpdates).length === 0) return;

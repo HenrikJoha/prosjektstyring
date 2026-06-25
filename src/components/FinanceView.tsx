@@ -6,7 +6,7 @@ import { useStore } from '@/store/useStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { Project, Worker } from '@/types';
 import { formatCurrency, parseISO, eachDayOfInterval, formatDateNorwegian } from '@/utils/dates';
-import { Check, X, DollarSign, TrendingUp, Trash2, Plus, User, ChevronDown } from 'lucide-react';
+import { Check, X, DollarSign, TrendingUp, Trash2, Plus, User, ChevronDown, AlertTriangle } from 'lucide-react';
 import clsx from 'clsx';
 import EditProjectModal from './EditProjectModal';
 
@@ -103,6 +103,47 @@ function countWorkingDays(start: Date, end: Date): number {
   return days.filter(d => !isWeekend(d)).length;
 }
 
+function sortProjectsWithUrgentFirst(projects: Project[]): Project[] {
+  return [...projects].sort((a, b) => {
+    const aUrgent = a.startIsUrgent ? 1 : 0;
+    const bUrgent = b.startIsUrgent ? 1 : 0;
+    return bUrgent - aUrgent;
+  });
+}
+
+function getUrgentStartTooltip(project: Project): string {
+  if (!project.startIsUrgent) return '';
+  if (project.plannedStartDate) {
+    return `Oppstart på dette prosjektet haster, planlagt oppstart: ${formatDateNorwegian(project.plannedStartDate)}`;
+  }
+  return 'Oppstart på dette prosjektet haster';
+}
+
+function UrgentStartIcon({ project }: { project: Project }) {
+  if (!project.startIsUrgent) return null;
+  return (
+    <AlertTriangle
+      size={18}
+      className="text-amber-500 mx-auto"
+      title={getUrgentStartTooltip(project)}
+    />
+  );
+}
+
+function StartDateDisplay({ project }: { project: Project }) {
+  if (project.startIsUrgent && !project.plannedStartDate) {
+    return (
+      <span className="text-sm text-amber-700 font-medium">Oppstart så fort som mulig</span>
+    );
+  }
+  if (project.plannedStartDate) {
+    return (
+      <span className="text-sm text-gray-900">{formatDateNorwegian(project.plannedStartDate)}</span>
+    );
+  }
+  return <span className="text-sm text-gray-900">-</span>;
+}
+
 const PROJECT_COLORS = [
   // Red (#EF4444) reserved for sick days only
   '#F97316', '#F59E0B', '#EAB308', '#84CC16', '#22C55E',
@@ -131,6 +172,7 @@ export default function FinanceView() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editField, setEditField] = useState<'akonto' | 'amount' | 'fakturert' | 'startDate' | 'duration' | null>(null);
   const [editValue, setEditValue] = useState<string>('');
+  const [editStartUrgent, setEditStartUrgent] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   
   // Create project modal state
@@ -176,7 +218,7 @@ export default function FinanceView() {
 
   // Separate unassigned projects from assigned ones
   const unassignedProjects = useMemo(() => {
-    return activeProjects.filter(p => !p.projectLeaderId);
+    return sortProjectsWithUrgentFirst(activeProjects.filter(p => !p.projectLeaderId));
   }, [activeProjects]);
 
   // Group active projects by project leader (excluding unassigned)
@@ -187,7 +229,10 @@ export default function FinanceView() {
     projectLeaders.forEach(leader => {
       const leaderProjects = activeProjects.filter(p => p.projectLeaderId === leader.id);
       if (leaderProjects.length > 0) {
-        groups.push({ leader: { id: leader.id, name: leader.name }, projects: leaderProjects });
+        groups.push({
+          leader: { id: leader.id, name: leader.name },
+          projects: sortProjectsWithUrgentFirst(leaderProjects),
+        });
       }
     });
     
@@ -249,6 +294,8 @@ export default function FinanceView() {
     setEditField(field);
     if (field === 'startDate') {
       setEditValue(currentValue as string || '');
+      const project = projects.find((p) => p.id === projectId);
+      setEditStartUrgent(project?.startIsUrgent ?? false);
     } else {
       setEditValue((currentValue === 0 || currentValue === '') ? '' : currentValue.toString());
     }
@@ -276,17 +323,22 @@ export default function FinanceView() {
         updateProject(projectId, { fakturert: fakturertValue });
       }
     } else if (editField === 'startDate') {
-      updateProject(projectId, { plannedStartDate: editValue || undefined });
+      updateProject(projectId, {
+        plannedStartDate: editValue || undefined,
+        startIsUrgent: editStartUrgent,
+      });
     } else if (editField === 'duration') {
       updateProject(projectId, { durationDays: numValue > 0 ? numValue : undefined });
     }
     setEditingId(null);
     setEditField(null);
+    setEditStartUrgent(false);
   };
 
   const handleCancel = () => {
     setEditingId(null);
     setEditField(null);
+    setEditStartUrgent(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent, projectId: string) => {
@@ -399,6 +451,7 @@ export default function FinanceView() {
                   <tr className="bg-white">
                     <th className="text-left px-4 py-3 text-sm font-medium text-amber-700">Prosjektleder</th>
                     <th className="text-left px-4 py-3 text-sm font-medium text-amber-700">Prosjekt</th>
+                    <th className="w-8 px-1 py-3" />
                     <th className="text-right px-4 py-3 text-sm font-medium text-amber-700">Beløp</th>
                     <th className="text-right px-4 py-3 text-sm font-medium text-amber-700">A konto %</th>
                     <th className="text-right px-4 py-3 text-sm font-medium text-amber-700">Fakturert</th>
@@ -453,6 +506,9 @@ export default function FinanceView() {
                             )}
                           </div>
                         </div>
+                      </td>
+                      <td className="w-8 px-1 py-4 text-center">
+                        <UrgentStartIcon project={project} />
                       </td>
                       
                       <td 
@@ -604,6 +660,15 @@ export default function FinanceView() {
                               onKeyDown={(e) => handleKeyDown(e, project.id)}
                               className="px-2 py-1 border border-blue-500 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
                             />
+                            <label className="flex items-center gap-1 text-xs text-gray-600 whitespace-nowrap">
+                              <input
+                                type="checkbox"
+                                checked={editStartUrgent}
+                                onChange={(e) => setEditStartUrgent(e.target.checked)}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                              Haster
+                            </label>
                             <button
                               onClick={(e) => { e.stopPropagation(); handleSave(project.id); }}
                               className="p-1 text-green-600 hover:bg-green-50 rounded"
@@ -618,9 +683,7 @@ export default function FinanceView() {
                             </button>
                           </div>
                         ) : (
-                          <span className="text-sm text-gray-900">
-                            {project.plannedStartDate ? formatDateNorwegian(project.plannedStartDate) : '-'}
-                          </span>
+                          <StartDateDisplay project={project} />
                         )}
                       </td>
                       
@@ -739,6 +802,7 @@ export default function FinanceView() {
                   <tr className="bg-gray-50">
                     <th className="text-left px-4 py-3 text-sm font-medium text-gray-500">Prosjektleder</th>
                     <th className="text-left px-4 py-3 text-sm font-medium text-gray-500">Prosjekt</th>
+                    <th className="w-8 px-1 py-3" />
                     <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Beløp</th>
                     <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">A konto %</th>
                     <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Fakturert</th>
@@ -755,7 +819,7 @@ export default function FinanceView() {
                       {/* Group header for project leader */}
                       <tr className={clsx(groupIndex > 0 && 'border-t-4 border-gray-300')}>
                         <td 
-                          colSpan={10} 
+                          colSpan={11} 
                           className="px-4 py-3 bg-gray-300 border-b-2 border-gray-400"
                         >
                           <div className="flex items-center gap-2">
@@ -823,6 +887,9 @@ export default function FinanceView() {
                                 )}
                               </div>
                             </div>
+                          </td>
+                          <td className="w-8 px-1 py-4 text-center">
+                            <UrgentStartIcon project={project} />
                           </td>
                           
                           <td 
@@ -974,6 +1041,15 @@ export default function FinanceView() {
                                   onKeyDown={(e) => handleKeyDown(e, project.id)}
                                   className="px-2 py-1 border border-blue-500 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
                                 />
+                                <label className="flex items-center gap-1 text-xs text-gray-600 whitespace-nowrap">
+                                  <input
+                                    type="checkbox"
+                                    checked={editStartUrgent}
+                                    onChange={(e) => setEditStartUrgent(e.target.checked)}
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                  Haster
+                                </label>
                                 <button
                                   onClick={(e) => { e.stopPropagation(); handleSave(project.id); }}
                                   className="p-1 text-green-600 hover:bg-green-50 rounded"
@@ -988,9 +1064,7 @@ export default function FinanceView() {
                                 </button>
                               </div>
                             ) : (
-                              <span className="text-sm text-gray-900">
-                                {project.plannedStartDate ? formatDateNorwegian(project.plannedStartDate) : '-'}
-                              </span>
+                              <StartDateDisplay project={project} />
                             )}
                           </td>
                           
