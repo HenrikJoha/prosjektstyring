@@ -122,11 +122,9 @@ function getUrgentStartTooltip(project: Project): string {
 function UrgentStartIcon({ project }: { project: Project }) {
   if (!project.startIsUrgent) return null;
   return (
-    <AlertTriangle
-      size={18}
-      className="text-amber-500 mx-auto"
-      title={getUrgentStartTooltip(project)}
-    />
+    <span title={getUrgentStartTooltip(project)} className="inline-flex">
+      <AlertTriangle size={18} className="text-amber-500 mx-auto" />
+    </span>
   );
 }
 
