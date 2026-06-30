@@ -12,10 +12,11 @@ import EditProjectModal from './EditProjectModal';
 interface AssignmentBarProps {
   assignment: ProjectAssignment;
   project: Project;
+  segmentKey: string;
   /** Segment range (when bar is split by system project); defaults to assignment dates. */
   segmentStartDate?: string;
   segmentEndDate?: string;
-  /** Other segments from same assignment (for split-on-edit). */
+  /** Other visual segments from same assignment (for merge-on-confirm). */
   otherSegmentsFromSameAssignment?: { startDate: string; endDate: string }[];
   style: { left: number; width: number };
   allDays: DayData[];
@@ -30,6 +31,7 @@ interface AssignmentBarProps {
   /** When isSystemBar: number of lanes to span. */
   systemBarLaneCount?: number;
   canEditAssignment?: boolean;
+  onPreviewChange?: (segmentKey: string, dates: { startDate: string; endDate: string } | null) => void;
 }
 
 const DRAG_THRESHOLD = 5;
@@ -38,6 +40,7 @@ const TOUCH_HOLD_DELAY = 500; // 500ms hold before drag activates on mobile
 export default function AssignmentBar({
   assignment,
   project,
+  segmentKey,
   segmentStartDate,
   segmentEndDate,
   otherSegmentsFromSameAssignment = [],
@@ -51,8 +54,9 @@ export default function AssignmentBar({
   systemBarLaneStart = 0,
   systemBarLaneCount = 1,
   canEditAssignment = true,
+  onPreviewChange,
 }: AssignmentBarProps) {
-  const { updateAssignment, updateAssignmentAndSplit } = useStore();
+  const { updateAssignment } = useStore();
   const effectiveStart = segmentStartDate ?? assignment.startDate;
   const effectiveEnd = segmentEndDate ?? assignment.endDate;
   const [showEditModal, setShowEditModal] = useState(false);
@@ -153,8 +157,9 @@ export default function AssignmentBar({
       const next = { startDate: newStart, endDate: newEnd };
       previewDatesRef.current = next;
       setPreviewDates(next);
+      onPreviewChange?.(segmentKey, next);
     }
-  }, [getContainer, getDateFromPosition, allDays, effectiveStart, effectiveEnd]);
+  }, [getContainer, getDateFromPosition, allDays, effectiveStart, effectiveEnd, onPreviewChange, segmentKey]);
 
   // Clear all drag state; show confirmation modal if dates changed (persist only on confirm)
   const clearDragState = useCallback((skipConfirmation: boolean = false) => {
@@ -191,26 +196,46 @@ export default function AssignmentBar({
       originalDatesRef.current = null;
       previewDatesRef.current = null;
       setPreviewDates(null);
+      onPreviewChange?.(segmentKey, null);
     }
-  }, [isDragging, isResizing, effectiveStart, effectiveEnd]);
+  }, [isDragging, isResizing, effectiveStart, effectiveEnd, onPreviewChange, segmentKey]);
   
-  // Handle confirmation - persist and clear preview
-  const handleConfirmMove = useCallback(() => {
+  // Handle confirmation - persist and clear preview after store update
+  const handleConfirmMove = useCallback(async () => {
     const toApply = pendingDatesRef.current;
-    if (toApply) {
-      if (otherSegmentsFromSameAssignment.length > 0) {
-        updateAssignmentAndSplit(assignment.id, toApply.startDate, toApply.endDate, otherSegmentsFromSameAssignment);
-      } else {
-        updateAssignment(assignment.id, { startDate: toApply.startDate, endDate: toApply.endDate });
-      }
-    }
+    if (!toApply) return;
+
+    const allRanges = [toApply, ...otherSegmentsFromSameAssignment];
+    const mergedStart = allRanges.reduce(
+      (min, r) => (r.startDate < min ? r.startDate : min),
+      allRanges[0].startDate
+    );
+    const mergedEnd = allRanges.reduce(
+      (max, r) => (r.endDate > max ? r.endDate : max),
+      allRanges[0].endDate
+    );
+
+    const success = await updateAssignment(assignment.id, {
+      startDate: mergedStart,
+      endDate: mergedEnd,
+    });
+
+    if (!success) return;
+
     pendingDatesRef.current = null;
     setShowConfirmModal(false);
     setPendingDates(null);
     originalDatesRef.current = null;
     previewDatesRef.current = null;
     setPreviewDates(null);
-  }, [otherSegmentsFromSameAssignment, assignment.id, updateAssignment, updateAssignmentAndSplit]);
+    onPreviewChange?.(segmentKey, null);
+  }, [
+    otherSegmentsFromSameAssignment,
+    assignment.id,
+    updateAssignment,
+    onPreviewChange,
+    segmentKey,
+  ]);
 
   // Handle cancel - clear preview so bar snaps back; no persist
   const handleCancelMove = useCallback(() => {
@@ -220,7 +245,8 @@ export default function AssignmentBar({
     originalDatesRef.current = null;
     previewDatesRef.current = null;
     setPreviewDates(null);
-  }, []);
+    onPreviewChange?.(segmentKey, null);
+  }, [onPreviewChange, segmentKey]);
 
   // ===== MOUSE HANDLERS (Desktop) =====
 
@@ -437,6 +463,7 @@ export default function AssignmentBar({
         ref={barRef}
         className={clsx(
           'project-bar absolute rounded-md shadow-sm overflow-visible',
+          isSystemBar ? 'z-20' : 'z-10',
           (isDragging || isResizing) && 'opacity-80 shadow-lg z-30',
           touchHoldActive && 'ring-2 ring-blue-400'
         )}

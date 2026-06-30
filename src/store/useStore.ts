@@ -52,14 +52,7 @@ interface AppState {
 
   // Assignment actions
   addAssignment: (assignment: Omit<ProjectAssignment, 'id'>) => Promise<void>;
-  updateAssignment: (id: string, updates: Partial<ProjectAssignment>) => Promise<void>;
-  /** Update one segment and materialize other segments (when splitting a bar by system project). */
-  updateAssignmentAndSplit: (
-    id: string,
-    newStartDate: string,
-    newEndDate: string,
-    otherSegments: { startDate: string; endDate: string }[]
-  ) => Promise<void>;
+  updateAssignment: (id: string, updates: Partial<ProjectAssignment>) => Promise<boolean>;
   deleteAssignment: (id: string) => Promise<void>;
 
   // UI actions
@@ -857,14 +850,14 @@ export const useStore = create<AppState>()((set, get) => ({
   updateAssignment: async (id, updates) => {
     const { assignments, isAdmin, editableWorkerIds } = get();
     const currentAssignment = assignments.find((assignment) => assignment.id === id);
-    if (!currentAssignment) return;
+    if (!currentAssignment) return false;
 
     if (
       !isAdmin &&
       (!editableWorkerIds.includes(currentAssignment.workerId) ||
         (updates.workerId !== undefined && !editableWorkerIds.includes(updates.workerId)))
     ) {
-      return;
+      return false;
     }
 
     const dbUpdates: Record<string, unknown> = {};
@@ -877,7 +870,7 @@ export const useStore = create<AppState>()((set, get) => ({
 
     if (error) {
       console.error('Error updating assignment:', error);
-      return;
+      return false;
     }
 
     set((state) => ({
@@ -885,22 +878,7 @@ export const useStore = create<AppState>()((set, get) => ({
         assignment.id === id ? { ...assignment, ...updates } : assignment
       ),
     }));
-  },
-
-  updateAssignmentAndSplit: async (id, newStartDate, newEndDate, otherSegments) => {
-    const assignment = get().assignments.find((item) => item.id === id);
-    if (!assignment) return;
-
-    const { addAssignment, updateAssignment } = get();
-    for (const segment of otherSegments) {
-      await addAssignment({
-        projectId: assignment.projectId,
-        workerId: assignment.workerId,
-        startDate: segment.startDate,
-        endDate: segment.endDate,
-      });
-    }
-    await updateAssignment(id, { startDate: newStartDate, endDate: newEndDate });
+    return true;
   },
 
   deleteAssignment: async (id) => {

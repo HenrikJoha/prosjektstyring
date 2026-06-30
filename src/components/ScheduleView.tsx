@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
-import { generateWeeks, formatDateShort, parseISO, isSameDay, addDays, startOfDay, format, subtractDateRanges } from '@/utils/dates';
+import { generateWeeks, formatDateShort, parseISO, isSameDay, addDays, startOfDay, format } from '@/utils/dates';
 import { nb } from 'date-fns/locale';
 import { Worker, Project, ProjectAssignment } from '@/types';
 import ProjectModal from './ProjectModal';
@@ -57,49 +57,26 @@ export interface AssignmentSegment {
   otherSegmentsFromSameAssignment: { startDate: string; endDate: string }[];
 }
 
-/** Build segments per worker: system assignments as-is; regular assignments split by system ranges. */
+/** Build segments per worker: one bar per assignment; lane logic stacks around system bars. */
 function getWorkerSegments(
   workerId: string,
   assignments: ProjectAssignment[],
   projects: Project[]
 ): AssignmentSegment[] {
   const workerAssignments = assignments.filter((a) => a.workerId === workerId);
-  const systemRanges = workerAssignments
-    .map((a) => {
-      const proj = projects.find((p) => p.id === a.projectId);
-      return proj?.isSystem ? { start: a.startDate, end: a.endDate } : null;
-    })
-    .filter((r): r is { start: string; end: string } => r != null);
 
   const segments: AssignmentSegment[] = [];
   for (const a of workerAssignments) {
     const project = projects.find((p) => p.id === a.projectId);
     if (!project || project.status !== 'active') continue;
 
-    if (project.isSystem) {
-      segments.push({
-        assignment: a,
-        project,
-        startDate: a.startDate,
-        endDate: a.endDate,
-        otherSegmentsFromSameAssignment: [],
-      });
-    } else {
-      const parts = subtractDateRanges(a.startDate, a.endDate, systemRanges);
-      for (let i = 0; i < parts.length; i++) {
-        const part = parts[i];
-        const otherSegmentsFromSameAssignment = parts
-          .filter((_, j) => j !== i)
-          .map((p) => ({ startDate: p.start, endDate: p.end }));
-        segments.push({
-          assignment: a,
-          project,
-          startDate: part.start,
-          endDate: part.end,
-          otherSegmentsFromSameAssignment,
-        });
-      }
-    }
+    segments.push({
+      assignment: a,
+      project,
+      startDate: a.startDate,
+      endDate: a.endDate,
+      otherSegmentsFromSameAssignment: [],
+    });
   }
   return segments;
 }
@@ -115,33 +92,63 @@ export interface SegmentLaneInfo {
   systemBarLaneCount?: number;
 }
 
+export function getAssignmentSegmentKey(s: AssignmentSegment, index: number): string {
+  return `${s.assignment.id}-${s.startDate}-${s.endDate}-${index}`;
+}
+
+function getEffectiveSegmentDates(
+  s: AssignmentSegment,
+  index: number,
+  previews?: ReadonlyMap<string, { startDate: string; endDate: string }>
+): { startDate: string; endDate: string } {
+  const preview = previews?.get(getAssignmentSegmentKey(s, index));
+  return preview ?? { startDate: s.startDate, endDate: s.endDate };
+}
+
+function overlapsAnySystemRange(
+  startDate: string,
+  endDate: string,
+  systemRanges: { startDate: string; endDate: string }[]
+): boolean {
+  return systemRanges.some((sys) =>
+    dateRangesOverlap(sys.startDate, sys.endDate, startDate, endDate)
+  );
+}
+
 /**
- * Calculate lane assignments so that segments from the same assignment (split by holiday/sick)
- * stay on the same line. System bars get height = number of overlapping project bars (not full row).
+ * Calculate lane assignments. System bars (sykemelding/ferie) use lane 0.
+ * Project bars that overlap system dates in time are stacked below on lane 1+.
  */
 function calculateSegmentLanes(
   segments: AssignmentSegment[],
   viewStart: string,
-  viewEnd: string
+  viewEnd: string,
+  previews?: ReadonlyMap<string, { startDate: string; endDate: string }>
 ): Map<string, SegmentLaneInfo> {
   const result = new Map<string, SegmentLaneInfo>();
-  const nonSystemSegments = segments.filter((s) => !s.project.isSystem);
-  const systemSegments = segments.filter((s) => s.project.isSystem);
 
-  // Assign lanes only for non-system segments; group by assignment.id so split parts share one lane
+  const systemRanges: { startDate: string; endDate: string }[] = [];
+  segments.forEach((s, i) => {
+    if (!s.project.isSystem) return;
+    const { startDate, endDate } = getEffectiveSegmentDates(s, i, previews);
+    if (!isAssignmentVisible({ startDate, endDate }, viewStart, viewEnd)) return;
+    systemRanges.push({ startDate, endDate });
+  });
+
   const groupRanges = new Map<string, { startDate: string; endDate: string }>();
-  for (const s of nonSystemSegments) {
-    if (!isAssignmentVisible({ startDate: s.startDate, endDate: s.endDate }, viewStart, viewEnd))
-      continue;
+  segments.forEach((s, i) => {
+    if (s.project.isSystem) return;
+    const { startDate, endDate } = getEffectiveSegmentDates(s, i, previews);
+    if (!isAssignmentVisible({ startDate, endDate }, viewStart, viewEnd)) return;
     const existing = groupRanges.get(s.assignment.id);
     const start = existing
-      ? (existing.startDate <= s.startDate ? existing.startDate : s.startDate)
-      : s.startDate;
+      ? (existing.startDate <= startDate ? existing.startDate : startDate)
+      : startDate;
     const end = existing
-      ? (existing.endDate >= s.endDate ? existing.endDate : s.endDate)
-      : s.endDate;
+      ? (existing.endDate >= endDate ? existing.endDate : endDate)
+      : endDate;
     groupRanges.set(s.assignment.id, { startDate: start, endDate: end });
-  }
+  });
 
   const groups = Array.from(groupRanges.entries()).map(([assignmentId, range]) => ({
     assignmentId,
@@ -152,56 +159,42 @@ function calculateSegmentLanes(
   const laneEndDates: string[] = [];
   const groupLane = new Map<string, number>();
   for (const g of groups) {
+    const overlapsSystem = overlapsAnySystemRange(g.startDate, g.endDate, systemRanges);
+    const minLane = overlapsSystem ? 1 : 0;
     let assignedLane = -1;
-    for (let i = 0; i < laneEndDates.length; i++) {
+    for (let i = minLane; i < laneEndDates.length; i++) {
       if (laneEndDates[i] < g.startDate) {
         assignedLane = i;
         break;
       }
     }
     if (assignedLane === -1) {
-      assignedLane = laneEndDates.length;
-      laneEndDates.push(g.endDate);
-    } else {
-      laneEndDates[assignedLane] = g.endDate;
+      assignedLane = Math.max(minLane, laneEndDates.length);
     }
+    while (laneEndDates.length <= assignedLane) {
+      laneEndDates.push('0000-01-01');
+    }
+    laneEndDates[assignedLane] = g.endDate;
     groupLane.set(g.assignmentId, assignedLane);
   }
-  const totalLanes = Math.max(1, laneEndDates.length);
 
-  // System bar: draw on the same line(s) as the project bars that overlap or are adjacent
-  const systemBarLaneSpan = (sysStart: string, sysEnd: string): { start: number; count: number } => {
-    const dayBeforeStart = format(addDays(parseISO(sysStart), -1), 'yyyy-MM-dd');
-    const dayAfterEnd = format(addDays(parseISO(sysEnd), 1), 'yyyy-MM-dd');
-    const assignmentIds = new Set<string>();
-    for (const s of nonSystemSegments) {
-      const overlaps = dateRangesOverlap(sysStart, sysEnd, s.startDate, s.endDate);
-      const adjacentBefore = s.endDate === dayBeforeStart;
-      const adjacentAfter = s.startDate === dayAfterEnd;
-      if (overlaps || adjacentBefore || adjacentAfter) {
-        assignmentIds.add(s.assignment.id);
-      }
-    }
-    if (assignmentIds.size === 0) return { start: 0, count: 1 };
-    const lanes = Array.from(assignmentIds).map((id) => groupLane.get(id) ?? 0);
-    const minLane = Math.min(...lanes);
-    const maxLane = Math.max(...lanes);
-    return { start: minLane, count: maxLane - minLane + 1 };
-  };
-
-  const segmentKey = (s: AssignmentSegment, i: number) =>
-    `${s.assignment.id}-${s.startDate}-${s.endDate}-${i}`;
+  let totalLanes = Math.max(1, laneEndDates.length);
+  if (
+    systemRanges.length > 0 &&
+    groups.some((g) => overlapsAnySystemRange(g.startDate, g.endDate, systemRanges))
+  ) {
+    totalLanes = Math.max(totalLanes, 2);
+  }
 
   segments.forEach((s, i) => {
-    const key = segmentKey(s, i);
+    const key = getAssignmentSegmentKey(s, i);
     if (s.project.isSystem) {
-      const span = systemBarLaneSpan(s.startDate, s.endDate);
       result.set(key, {
         lane: 0,
         totalLanes,
         isSystemBar: true,
-        systemBarLaneStart: span.start,
-        systemBarLaneCount: span.count,
+        systemBarLaneStart: 0,
+        systemBarLaneCount: 1,
       });
     } else {
       const lane = groupLane.get(s.assignment.id) ?? 0;
@@ -221,6 +214,9 @@ export default function ScheduleView() {
   const [showModal, setShowModal] = useState(false);
   const [modalData, setModalData] = useState<{ workerId: string; startDate: string; endDate: string } | null>(null);
   const [isLongPressActive, setIsLongPressActive] = useState(false);
+  const [segmentPreviews, setSegmentPreviews] = useState<
+    Map<string, { startDate: string; endDate: string }>
+  >(() => new Map());
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   
   // Long press handling for touch
@@ -441,16 +437,31 @@ export default function ScheduleView() {
     [assignments, projects]
   );
 
+  const handleSegmentPreviewChange = useCallback(
+    (segmentKey: string, dates: { startDate: string; endDate: string } | null) => {
+      setSegmentPreviews((prev) => {
+        const next = new Map(prev);
+        if (dates) {
+          next.set(segmentKey, dates);
+        } else {
+          next.delete(segmentKey);
+        }
+        return next;
+      });
+    },
+    []
+  );
+
   // Calculate lane info per worker (split segments share lane by assignment.id; system bars full height)
   const workerLaneInfo = useMemo(() => {
     const result = new Map<string, Map<string, SegmentLaneInfo>>();
     for (const worker of flatWorkers) {
       const segs = getWorkerSegmentsForWorker(worker.id);
-      const laneInfo = calculateSegmentLanes(segs, viewStartDate, viewEndDate);
+      const laneInfo = calculateSegmentLanes(segs, viewStartDate, viewEndDate, segmentPreviews);
       result.set(worker.id, laneInfo);
     }
     return result;
-  }, [flatWorkers, getWorkerSegmentsForWorker, viewStartDate, viewEndDate]);
+  }, [flatWorkers, getWorkerSegmentsForWorker, viewStartDate, viewEndDate, segmentPreviews]);
 
   // Get row height for a worker (based on non-system lanes; system bar uses full height)
   const getWorkerRowHeight = useCallback((workerId: string) => {
@@ -727,7 +738,7 @@ export default function ScheduleView() {
                         {/* Assignment bars (one per segment; regular projects split by system ranges) */}
                         {workerSegments.map((segment, segIdx) => {
                           const style = getBarStyleFromSegment(segment);
-                          const segmentKey = `${segment.assignment.id}-${segment.startDate}-${segment.endDate}-${segIdx}`;
+                          const segmentKey = getAssignmentSegmentKey(segment, segIdx);
                           const segmentLaneInfo = laneInfo?.get(segmentKey);
                           
                           if (!style) return null;
@@ -737,6 +748,7 @@ export default function ScheduleView() {
                               key={segmentKey}
                               assignment={segment.assignment}
                               project={segment.project}
+                              segmentKey={segmentKey}
                               segmentStartDate={segment.startDate}
                               segmentEndDate={segment.endDate}
                               otherSegmentsFromSameAssignment={segment.otherSegmentsFromSameAssignment}
@@ -750,6 +762,7 @@ export default function ScheduleView() {
                               systemBarLaneStart={segmentLaneInfo?.systemBarLaneStart ?? 0}
                               systemBarLaneCount={segmentLaneInfo?.systemBarLaneCount ?? 1}
                               canEditAssignment={canEditWorker}
+                              onPreviewChange={handleSegmentPreviewChange}
                             />
                           );
                         })}
